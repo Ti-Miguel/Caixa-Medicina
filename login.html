@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Entrar — Caixa da Medicina</title>
+  <link rel="icon" href="logo.jpeg" type="image/jpeg" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body{display:flex;align-items:center;justify-content:center}
+    .login-card{width:100%;max-width:360px;background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:20px;margin-top:64px}
+    .login-card h1{margin:0 0 8px}
+    .login-card p{margin:0 0 16px;color:var(--muted)}
+    .login-card .form-grid{grid-template-columns:1fr}
+    .login-card .brand-mark{margin-bottom:8px}
+    .login-actions{display:flex;gap:8px;align-items:center;justify-content:space-between}
+    .muted{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-mark">CM</div>
+      <div>
+        <h1>Entrar</h1>
+        <p>Acesse seu caixa pessoal</p>
+      </div>
+    </div>
+
+    <form id="formLogin" class="form-grid" autocomplete="on">
+      <div>
+        <label>E-mail</label>
+        <input type="email" id="email" name="email" autocomplete="username" required placeholder="ex: recepcao@clinica.com" />
+      </div>
+      <div>
+        <label>Senha</label>
+        <input type="password" id="senha" name="senha" autocomplete="current-password" required placeholder="••••••••" />
+      </div>
+      <div class="full login-actions">
+        <button class="btn" type="submit">Entrar</button>
+        <span class="muted" id="msg"></span>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    async function post(action, form){
+      const fd = new FormData();
+      fd.append("action", action);
+      Object.entries(form||{}).forEach(([k,v])=>fd.append(k, v ?? ""));
+      try{
+        const r = await fetch("auth.php", { method:"POST", body:fd, credentials:"same-origin" });
+        let j;
+        try { j = await r.json(); } 
+        catch { return { ok:false, erro:"Resposta inválida do servidor." }; }
+        return j;
+      }catch(e){
+        return { ok:false, erro:"Falha de rede. Verifique sua conexão." };
+      }
+    }
+
+    document.getElementById("formLogin").addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const email = document.getElementById("email").value.trim();
+      const senha = document.getElementById("senha").value;
+      const msgEl = document.getElementById("msg");
+      msgEl.textContent = "Verificando...";
+      const res = await post("auth.login", {email, senha});
+      if(res.ok){
+        location.href = "index.html";
+      }else{
+        msgEl.textContent = res.erro || "Falha no login";
+      }
+    });
+  </script>
+</body>
+</html>

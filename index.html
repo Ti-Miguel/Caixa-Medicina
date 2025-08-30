@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Caixa da Medicina</title>
+    <link rel="icon" href="logo.jpeg" type="image/jpeg" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+
+  <body>
+    <!-- Guard de sessão: redireciona se não estiver logado -->
+    <script>
+      (async () => {
+        try{
+          const r = await fetch("auth.php?action=auth.me");
+          const j = await r.json();
+          if(!j.ok || !j.data){ window.location.href = "login.html"; }
+        }catch(e){
+          window.location.href = "login.html";
+        }
+      })();
+    </script>
+
+    <!-- Top accent fino -->
+    <div class="top-accent"></div>
+
+    <header class="app-header app-header--clean">
+      <div class="brand">
+        <div class="brand-mark">CM</div>
+        <div>
+          <h1>Caixa da Medicina</h1>
+          <p>Fechamento, Recebimentos, Relatórios e Gestão</p>
+        </div>
+      </div>
+
+      <!-- Área do usuário/caixa (vinculado ao login) -->
+      <div class="session session--compact">
+        <div class="session-field">
+          <label>Logado</label>
+          <span id="userName">—</span>
+          <button class="btn btn-outline" id="btnLogout" title="Sair">Sair</button>
+        </div>
+
+        <div class="caixa-status">
+          <span class="badge" id="statusBadge">Caixa não aberto</span>
+          <small id="statusInfo"></small>
+        </div>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <button data-screen="abrirCaixa" class="active">Abertura de Caixa</button>
+      <button data-screen="recebimentos">Recebimentos</button>
+      <button data-screen="saidas">Saídas (Transferências)</button>
+      <button data-screen="relatorios">Relatórios</button>
+      <button data-screen="procedimentos">Valores dos Exames</button>
+      <button data-screen="profissionais">Profissionais & Especialidades</button>
+      <button data-screen="dashboard">Dashboard</button>
+      <button data-screen="fechamento">Fechamento de Caixa</button>
+      <button class="btn-hub" onclick="window.location.href='/hub.html'">↪ Hub de Sistemas</button>
+    </aside>
+
+    <main class="main">
+      <!-- ABERTURA DE CAIXA -->
+      <section id="abrirCaixa" class="screen visible">
+        <h2>Abertura de Caixa (por dia)</h2>
+
+        <form id="formAbertura" class="card form-grid">
+          <div>
+            <label>Data do Caixa</label>
+            <input type="date" id="dataCaixa" required readonly />
+          </div>
+
+          <div>
+            <label>Saldo Inicial (Dinheiro)</label>
+            <input type="number" id="saldoInicial" min="0" step="0.01" />
+          </div>
+
+          <div>
+            <label>Observação</label>
+            <input type="text" id="obsAbertura" placeholder="Opcional" />
+          </div>
+
+          <div class="full">
+            <button class="btn" type="submit">Abrir Caixa</button>
+            <button class="btn btn-outline" type="button" id="btnFecharCaixaDia">Encerrar Caixa do Dia</button>
+          </div>
+        </form>
+
+        <!-- Filtros de datas para listar caixas por dia -->
+        <div class="card">
+          <h3>Caixas por Dia</h3>
+
+          <div class="filters-block">
+            <label>Período:</label>
+            <input type="date" id="filtroCxInicio" />
+            <input type="date" id="filtroCxFim" />
+            <button type="button" class="btn btn-ghost" id="btnAplicarFiltroCaixas">Filtrar</button>
+            <button type="button" class="btn btn-outline" id="btnLimparFiltroCaixas">Limpar</button>
+          </div>
+
+          <table class="table" id="tabelaCaixas">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Usuário</th>
+                <th>Saldo Inicial</th>
+                <th>Abertura</th>
+                <th>Fechamento</th>
+                <th>Obs</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- RECEBIMENTOS -->
+      <section id="recebimentos" class="screen">
+        <h2>Lançar Recebimento</h2>
+
+        <form id="formRecebimento" class="card form-grid">
+          <div>
+            <label>Nome do Paciente</label>
+            <input type="text" id="pacienteNome" required />
+          </div>
+
+          <div>
+            <label>CPF do Paciente</label>
+            <input type="text" id="pacienteCPF" placeholder="somente números" />
+          </div>
+
+          <div>
+            <label>Valor (R$)</label>
+            <input type="number" id="valor" min="0" step="0.01" required />
+          </div>
+
+          <div>
+            <label>Forma de Pagamento</label>
+            <select id="formaPagamento" required>
+              <option value="">Selecione</option>
+              <option>Cartão de Débito</option>
+              <option>Cartão de Crédito</option>
+              <option>Sipag Débito</option>
+              <option>Sipag Crédito</option>
+              <option>Pix</option>
+              <option>Dinheiro</option>
+              <option>Boleto</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Tabela</label>
+            <select id="tabela" required>
+              <option value="">Selecione</option>
+              <option>Cartão De Todos</option>
+              <option>Ótica</option>
+              <option>Particular</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Baixa</label>
+            <select id="baixa" required>
+              <option value="">Selecione</option>
+              <option>Amei</option>
+              <option>Por Fora</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Indicador</label>
+            <select id="indicador" required>
+              <option value="">Selecione</option>
+              <option>Consulta</option>
+              <option>Sessão</option>
+              <option>Procedimento</option>
+              <option>Exame de Imagem</option>
+              <option>Exame Laboratorial</option>
+              <option>Guias</option>
+              <option>Laudos</option>
+            </select>
+          </div>
+
+          <div class="full">
+            <label>Exames Complementares</label>
+            <div class="chips" id="chipsExames"></div>
+            <small id="examesTotalInfo"></small>
+          </div>
+
+          <div>
+            <label>Profissional</label>
+            <select id="profissional"></select>
+          </div>
+
+          <div>
+            <label>Especialidade</label>
+            <select id="especialidade"></select>
+          </div>
+
+          <div class="full">
+            <label>Observação</label>
+            <input type="text" id="observacao" placeholder="Opcional" />
+          </div>
+
+          <div class="full">
+            <button class="btn" type="submit">Lançar</button>
+          </div>
+        </form>
+
+        <div class="card">
+          <h3>Recebimentos do Dia (Caixa Atual)</h3>
+          <table class="table" id="tabelaRecebimentos">
+            <thead>
+              <tr>
+                <th>Data/Hora</th>
+                <th>Paciente</th>
+                <th>Valor</th>
+                <th>Forma</th>
+                <th>Tabela</th>
+                <th>Baixa</th>
+                <th>Indicador</th>
+                <th>Profissional</th>
+                <th>Especialidade</th>
+                <th>Exames</th>
+                <th>Valor Exames</th>
+                <th>Total do Atendimento</th>
+                <th>Obs</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+
+          <div class="totais" id="totaisRecebimentos"></div>
+        </div>
+      </section>
+
+      <!-- SAÍDAS -->
+      <section id="saidas" class="screen">
+        <h2>Saídas (Transferências)</h2>
+
+        <form id="formSaida" class="card form-grid">
+          <div>
+            <label>Descrição</label>
+            <input type="text" id="saidaDescricao" required />
+          </div>
+
+          <div>
+            <label>Valor (R$)</label>
+            <input type="number" id="saidaValor" min="0" step="0.01" required />
+          </div>
+
+          <div>
+            <label>Origem</label>
+            <select id="saidaOrigem" required>
+              <option value="">Selecione</option>
+              <option>Dinheiro</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Observação</label>
+            <input type="text" id="saidaObs" placeholder="Opcional" />
+          </div>
+          <div class="full">
+            <button class="btn" type="submit">Lançar Saída</button>
+          </div>
+        </form>
+
+        <div class="card">
+          <h3>Saídas do Dia (Caixa Atual)</h3>
+          <table class="table" id="tabelaSaidas">
+            <thead>
+              <tr>
+                <th>Data/Hora</th>
+                <th>Descrição</th>
+                <th>Origem</th>
+                <th>Valor</th>
+                <th>Obs</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- RELATÓRIOS -->
+      <section id="relatorios" class="screen">
+        <h2>Relatórios</h2>
+
+        <form class="card form-grid" id="formFiltros">
+          <div>
+            <label>Período - Início</label>
+            <input type="date" id="filtroInicio" />
+          </div>
+
+          <div>
+            <label>Período - Fim</label>
+            <input type="date" id="filtroFim" />
+          </div>
+
+          <div>
+            <label>Usuário</label>
+            <select id="filtroUsuario"></select>
+          </div>
+
+          <div>
+            <label>Forma</label>
+            <select id="filtroForma">
+              <option value="">Todas</option>
+              <option>Cartão de Débito</option>
+              <option>Cartão de Crédito</option>
+              <option>Sipag Débito</option>
+              <option>Sipag Crédito</option>
+              <option>Pix</option>
+              <option>Dinheiro</option>
+              <option>Boleto</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Tabela</label>
+            <select id="filtroTabela">
+              <option value="">Todas</option>
+              <option>CDT</option>
+              <option>Ótica</option>
+              <option>Particular</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Baixa</label>
+            <select id="filtroBaixa">
+              <option value="">Todas</option>
+              <option>Amei</option>
+              <option>Por Fora</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Indicador</label>
+            <select id="filtroIndicador">
+              <option value="">Todos</option>
+              <option>Consulta</option>
+              <option>Sessão</option>
+              <option>Procedimento</option>
+              <option>Exame de Imagem</option>
+              <option>Exame Laboratorial</option>
+              <option>Guias</option>
+              <option>Laudos</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Profissional</label>
+            <select id="filtroProf"></select>
+          </div>
+
+          <div>
+            <label>Especialidade</label>
+            <select id="filtroEsp"></select>
+          </div>
+
+          <div class="full">
+            <label>Busca (Paciente/Obs)</label>
+            <input type="text" id="filtroTexto" placeholder="contém..." />
+          </div>
+
+          <div class="full">
+            <button class="btn" type="button" id="btnAplicarFiltros">Aplicar Filtros</button>
+            <button class="btn btn-outline" type="button" id="btnExportarCSV">Exportar CSV</button>
+          </div>
+        </form>
+
+        <div class="relatorios-grid">
+          <div class="card card--report">
+            <h3>Recebimentos (Filtrados)</h3>
+            <table class="table" id="tabelaRelatorio">
+              <thead>
+                <tr>
+                  <th>Data/Hora</th>
+                  <th>Paciente</th>
+                  <th>Valor</th>
+                  <th>Forma</th>
+                  <th>Tabela</th>
+                  <th>Baixa</th>
+                  <th>Indicador</th>
+                  <th>Profissional</th>
+                  <th>Especialidade</th>
+                  <th>Exames</th>
+                  <th>Valor Exames</th>
+                  <th>Total do Atendimento</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="card card--totais">
+            <h3>Totais</h3>
+            <table class="table" id="tabelaTotais">
+              <thead>
+                <tr>
+                  <th>Categoria</th>
+                  <th>Valor</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- VALORES DOS EXAMES COMPLEMENTARES -->
+      <section id="procedimentos" class="screen">
+        <h2>Valores dos Exames Complementares</h2>
+
+        <form id="formProcedimento" class="card form-grid">
+          <div>
+            <label>Exame</label>
+            <input type="text" id="procNome" placeholder="Ex: Tonometria" />
+          </div>
+
+          <div>
+            <label>Cartão de Todos (R$)</label>
+            <input type="number" id="procValorCartao" min="0" step="0.01" />
+          </div>
+
+          <div>
+            <label>Particular (R$)</label>
+            <input type="number" id="procValorParticular" min="0" step="0.01" />
+          </div>
+
+        <div class="full">
+            <button class="btn" type="submit">Adicionar/Atualizar</button>
+          </div>
+        </form>
+
+        <div class="card">
+          <h3>Lista de Exames</h3>
+          <table class="table" id="tabelaProcedimentos">
+            <thead>
+              <tr>
+                <th>Exame</th>
+                <th>Cartão de Todos</th>
+                <th>Particular</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PROFISSIONAIS & ESPECIALIDADES -->
+      <section id="profissionais" class="screen">
+        <h2>Profissionais & Especialidades</h2>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Profissionais</h3>
+
+            <form id="formProf" class="form-grid">
+              <div>
+                <label>Nome</label>
+                <input type="text" id="profNome" />
+              </div>
+
+              <div class="full">
+                <button class="btn" type="submit">Adicionar</button>
+              </div>
+            </form>
+
+            <table class="table" id="tabelaProf">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="card">
+            <h3>Especialidades</h3>
+
+            <form id="formEsp" class="form-grid">
+              <div>
+                <label>Nome</label>
+                <input type="text" id="espNome" />
+              </div>
+
+              <div class="full">
+                <button class="btn" type="submit">Adicionar</button>
+              </div>
+            </form>
+
+            <table class="table" id="tabelaEsp">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- DASHBOARD -->
+      <section id="dashboard" class="screen">
+        <h2>Dashboard</h2>
+
+        <div class="kpis">
+          <div class="kpi">
+            <div class="kpi-label">Recebido (Hoje)</div>
+            <div class="kpi-value" id="kpiHoje">R$ 0,00</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Recebido (Mês)</div>
+            <div class="kpi-value" id="kpiMes">R$ 0,00</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Dinheiro (Hoje)</div>
+            <div class="kpi-value" id="kpiDinheiroHoje">R$ 0,00</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Saídas (Hoje)</div>
+            <div class="kpi-value" id="kpiSaidasHoje">R$ 0,00</div>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <div class="card">
+            <h3>Recebimentos por Forma (Últimos 30 dias)</h3>
+            <canvas id="chartFormas"></canvas>
+          </div>
+          <div class="card">
+            <h3>Recebimentos por Indicador (Últimos 30 dias)</h3>
+            <canvas id="chartIndicador"></canvas>
+          </div>
+          <div class="card">
+            <h3>Receita por Especialidade (Últimos 30 dias)</h3>
+            <canvas id="chartEsp"></canvas>
+          </div>
+          <div class="card">
+            <h3>Recebimentos por Profissional (Últimos 30 dias)</h3>
+            <canvas id="chartProf"></canvas>
+          </div>
+          <div class="card">
+            <h3>Ticket médio por Indicador (Últimos 30 dias)</h3>
+            <canvas id="chartTicketIndicador"></canvas>
+          </div>
+          <div class="card">
+            <h3>Receita diária (Últimos 14 dias)</h3>
+            <canvas id="chartDiario"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- FECHAMENTO -->
+      <section id="fechamento" class="screen">
+        <h2>Fechamento de Caixa</h2>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Resumo do Caixa (Dia/Usuário Atuais)</h3>
+            <div id="resumoFechamento" class="totais"></div>
+          </div>
+
+          <div class="card">
+            <h3>Distribuição por Forma (Dia Atual)</h3>
+            <canvas id="chartFechamento"></canvas>
+          </div>
+        </div>
+
+        <div class="card emphasis-cash">
+          <h3>Dinheiro — Posição</h3>
+          <div id="posicaoDinheiro" class="totais"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="api-client.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

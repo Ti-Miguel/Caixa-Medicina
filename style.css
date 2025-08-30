@@ -1,0 +1,829 @@
+/* ==========================================================================
+   Design System (Cores, Tipografia, Tokens)
+   ========================================================================== */
+:root {
+  /* Paleta base séria */
+  --bg: #f3f4f6;          /* fundo geral */
+  --surface: #ffffff;     /* cartões/superfícies */
+  --ink: #0f172a;         /* texto principal */
+  --muted: #475569;       /* texto secundário */
+  --border: #e5e7eb;      /* linhas/bordas */
+  --shadow: 0 4px 14px rgba(0,0,0,.06);
+
+  /* Acentos (desaturados) */
+  --primary: #b2302c;     /* derivado do #d73834, mais sóbrio */
+  --primary-ghost: #fdecec;
+  --secondary: #4aa8b7;   /* derivado do #61c1d0, mais contido */
+  --secondary-ghost: #e9f6f8;
+
+  /* Estados */
+  --success: #16a34a;
+  --warning: #f59e0b;
+}
+
+/* Reset básico */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ==========================================================================
+   Top Accent e Header
+   ========================================================================== */
+.top-accent {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 4px; /* faixa fina */
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  z-index: 100;
+}
+
+.app-header {
+  position: fixed;
+  top: 4px; /* logo abaixo da faixa */
+  left: 250px;
+  right: 0;
+  height: 68px;
+  background: var(--surface);
+  color: var(--ink);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 99;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-mark {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  display: grid; place-items: center;
+  font-weight: 800;
+  color: var(--primary);
+  background: var(--primary-ghost);
+  border: 1px solid #f5d1d1;
+}
+.app-header h1 { margin:0; font-size:18px; }
+.app-header p { margin:0; font-size:12px; color: var(--muted); }
+
+/* Área usuário/caixa */
+.session {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.session--compact .session-field {
+  display:flex; align-items:center; gap:8px;
+  background:#fff;
+  border:1px solid var(--border);
+  padding:6px;
+  border-radius:10px;
+}
+.session label {
+  font-size:12px;
+  color: var(--muted);
+  margin-right:2px;
+}
+.session select {
+  height:32px; min-width:160px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:#fff;
+  color: var(--ink);
+  padding:0 8px;
+}
+.session #btnAddUsuario {
+  height:32px; padding:0 10px; border-radius:8px;
+}
+
+/* status do caixa */
+.badge {
+  background: var(--secondary-ghost);
+  color:#0d5965;
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  border:1px solid #d5ebef;
+}
+.caixa-status {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  align-items:flex-end;
+}
+.caixa-status small { color: var(--muted); }
+
+/* ==========================================================================
+   Sidebar
+   ========================================================================== */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 250px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 3;
+}
+.sidebar button {
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink);
+  transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.sidebar button:hover {
+  background: #fafafa;
+  border-color: #eaecef;
+}
+.sidebar button.active {
+  background: var(--secondary-ghost);
+  border-color: #cfe8ea;
+  box-shadow: inset 0 0 0 2px rgba(74,168,183,.25);
+}
+
+/* ==========================================================================
+   Main / Layouts
+   ========================================================================== */
+.main {
+  margin-left: 250px;
+  padding: 108px 24px 24px; /* compensar faixa + header */
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.screen { display:none; }
+.screen.visible { display:block; }
+
+h2 { margin:8px 0 4px; }
+h3 { margin:8px 0 12px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* ==========================================================================
+   Formulários
+   ========================================================================== */
+.form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+}
+.form-grid .full { grid-column:1/-1; }
+
+label { font-size:12px; color: var(--muted); }
+
+input, select {
+  width:100%; height:40px;
+  border-radius:10px; padding:0 10px;
+  border:1px solid var(--border);
+  background:#fff; color: var(--ink);
+}
+input[type="number"] { text-align:right; }
+
+.btn {
+  height:40px; padding:0 14px;
+  border-radius:10px;
+  background: var(--primary);
+  color:#fff; border:none;
+  font-weight:700; cursor:pointer;
+  transition: filter .15s ease, transform .05s ease;
+}
+.btn:hover { filter:brightness(.97); }
+.btn:active { transform:translateY(1px); }
+
+.btn-outline {
+  background:#fff;
+  color: var(--primary);
+  border:2px solid var(--primary);
+}
+
+/* chips (exames) */
+.chips { display:flex; flex-wrap:wrap; gap:8px; }
+.chip {
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  cursor:pointer;
+  user-select:none;
+  background:#fff;
+  color: var(--ink);
+  transition: background .15s, border-color .15s, color .15s;
+}
+.chip.active {
+  background: var(--secondary-ghost);
+  border-color:#cfe8ea;
+  color:#0d5965;
+}
+
+/* ==========================================================================
+   Tabelas
+   ========================================================================== */
+.table {
+  width:100%;
+  border-collapse:collapse;
+  font-size:14px;
+}
+.table th, .table td {
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  vertical-align:top;
+}
+.table thead th {
+  background:#fafafa;
+  position:sticky; top:0; z-index:1;
+  color: var(--muted);
+  font-weight:700;
+}
+.table tbody tr:hover { background:#fafafa; }
+
+/* ==========================================================================
+   Grades e Indicadores
+   ========================================================================== */
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+
+.kpis {
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:16px;
+}
+.kpi {
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:16px;
+}
+.kpi-label { font-size:12px; color: var(--muted); }
+.kpi-value { font-size:24px; font-weight:800; letter-spacing:.2px; }
+
+.totais { display:flex; flex-direction:column; gap:6px; font-size:14px; }
+.totais .line { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.totais .pill { padding:4px 10px; border-radius:999px; background:#f1f5f9; font-weight:700; }
+
+.emphasis-cash {
+  border:1px dashed #f3c9c8;
+  background:#fff;
+}
+
+/* ==========================================================================
+   Responsivo
+   ========================================================================== */
+@media (max-width: 1000px) {
+  .form-grid { grid-template-columns:1fr 1fr; }
+  .grid-2 { grid-template-columns:1fr; }
+  .kpis { grid-template-columns:1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .form-grid { grid-template-columns:1fr; }
+  .kpis { grid-template-columns:1fr; }
+  .app-header { left:0; padding:0 12px; height:72px; top:4px; }
+  .top-accent{ top:0; }
+  .session--compact .session-field{ display:none; }
+  .main{ margin-left:0; padding-top:88px; }
+}
+
+/* tabela de caixas mais compacta */
+#tabelaCaixas th, 
+#tabelaCaixas td {
+  padding: 6px 8px;        /* menos espaçamento */
+  font-size: 13px;         /* fonte menor */
+  white-space: nowrap;     /* manter colunas compactas */
+}
+#tabelaCaixas td:last-child {
+  max-width: 150px;
+  white-space: normal;     /* permitir quebra só em Observação */
+}
+
+/* Centralização da tabela de caixas */
+#tabelaCaixas th,
+#tabelaCaixas td {
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: center;   /* centraliza todo o conteúdo */
+  vertical-align: middle;
+}
+
+/* deixar a coluna Observação alinhada à esquerda (mais natural) */
+#tabelaCaixas td:last-child,
+#tabelaCaixas th:last-child {
+  text-align: left;
+}
+
+/* ==================== Saídas (formulário) — compactação e alinhamento ==================== */
+#formSaida.form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr)); /* mantém 4 colunas */
+  gap: 10px;                                         /* um pouco mais compacto */
+}
+
+/* inputs do formulário de saídas levemente menores para dar unidade */
+#formSaida input,
+#formSaida select,
+#formSaida .btn {
+  height: 38px;
+}
+
+/* botão na linha inteira continua ocupando a largura total */
+#formSaida .full {
+  grid-column: 1 / -1;
+}
+
+/* ==================== Saídas (tabela) — organização e centralização ==================== */
+#tabelaSaidas th,
+#tabelaSaidas td {
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: center;    /* centraliza todas as colunas */
+  vertical-align: middle;
+  white-space: nowrap;   /* deixa compacto */
+}
+
+/* Se quiser cortar textos longos (descrição/obs) para manter a linha “limpa” */
+#tabelaSaidas td:nth-child(2),
+#tabelaSaidas td:nth-child(5) {
+  max-width: 220px;        /* ajuste fino conforme a sua tela */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cabeçalho levemente mais forte, mas compacto */
+#tabelaSaidas thead th {
+  background: #fafafa;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+
+/* Filtros da lista de caixas - compacto e alinhado */
+#formFiltroCaixas.form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+#formFiltroCaixas .full {
+  grid-column: 1 / -1;
+}
+#formFiltroCaixas input,
+#formFiltroCaixas .btn {
+  height: 38px;
+}
+
+/* Centralização/compactação da tabela (mantém o que já aplicamos) */
+#tabelaCaixas th,
+#tabelaCaixas td {
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: center;
+  vertical-align: middle;
+}
+#tabelaCaixas td:last-child,
+#tabelaCaixas th:last-child {
+  text-align: left; /* Observação à esquerda */
+}
+
+/* ===== Toolbar compacta dentro do card de tabela ===== */
+.table-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:8px;
+}
+.table-header h3{
+  margin:0;
+}
+
+.filters-inline{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.filters-inline label{
+  font-size:12px;
+  color:var(--muted);
+  margin-right:2px;
+}
+.filters-inline .dash{ opacity:.6; }
+
+.filters-inline input{
+  height:34px;            /* menor que os formulários principais */
+  padding:0 8px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:#fff;
+}
+
+.btn.btn-ghost{
+  background:#fff;
+  color:var(--ink);
+  border:1px solid var(--border);
+}
+
+/* Tabela de caixas: centralizada/compacta (mantém Observação à esquerda) */
+#tabelaCaixas th, #tabelaCaixas td{
+  padding:6px 8px;
+  font-size:13px;
+  text-align:center;
+  vertical-align:middle;
+}
+#tabelaCaixas th:last-child, #tabelaCaixas td:last-child{ text-align:left; }
+
+/* Responsivo: toolbar quebra bonito */
+@media (max-width:720px){
+  .table-header{ align-items:flex-start; }
+  .filters-inline{ width:100%; justify-content:flex-start; }
+}
+
+/* ===== Filtros logo abaixo do título ===== */
+.filters-block{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin: 6px 0 12px;   /* dá um respiro entre título e tabela */
+}
+
+.filters-block label{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.filters-block .dash{
+  opacity:.6;
+}
+
+.filters-block input{
+  height:34px;
+  padding:0 8px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:#fff;
+}
+
+.btn.btn-ghost{
+  background:#fff;
+  color:var(--ink);
+  border:1px solid var(--border);
+}
+
+/* responsivo: filtros quebram em linha */
+@media (max-width:720px){
+  .filters-block{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+}
+
+/* ===== Espaçamento entre cards ===== */
+.main .card {
+  margin-bottom: 16px;   /* espaço padrão entre cards */
+}
+
+/* opcional: deixar o último card sem espaço extra no fim da página */
+.main .card:last-child {
+  margin-bottom: 0;
+}
+
+/* Camadas seguras */
+.top-accent { z-index: 300; }
+.app-header  { z-index: 150; }
+.sidebar     { z-index: 200; }  /* acima do header */
+
+
+/* ===== Ajustes Profissionais & Especialidades ===== */
+
+/* espaço entre botão e tabela */
+#formProf,
+#formEsp {
+  margin-bottom: 12px; /* cria respiro antes da tabela */
+}
+
+/* centralizar colunas da tabela */
+#tabelaProf th,
+#tabelaProf td,
+#tabelaEsp th,
+#tabelaEsp td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* ===== Dashboard: grid com mais espaçamento ===== */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;              /* espaçamento maior entre relatórios */
+  margin-top: 12px;
+}
+
+@media (max-width: 1000px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
+}
+
+/* Opcional: dar um leve respiro interno a gráficos longos */
+.dashboard-grid .card canvas {
+  width: 100%;
+  max-height: 360px;
+}
+
+/* Espaço entre os KPIs e os relatórios do dashboard */
+.kpis {
+  margin-bottom: 16px;  /* dá o respiro que você pediu */
+}
+
+/* Dashboard: grid e gráficos menores */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 12px;
+}
+
+@media (max-width: 1000px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
+}
+
+/* gráficos mais compactos */
+.dashboard-grid .card canvas {
+  width: 100%;
+  max-height: 260px;  /* <-- gráficos menores */
+}
+
+
+/* gráficos do dashboard mais compactos */
+.dashboard-grid .card canvas {
+  width: 100%;
+  max-height: 200px;   /* diminui a altura, antes estava 260px */
+}
+
+#chartFechamento {
+  max-height: 200px;   /* antes era livre, agora fica menor */
+  width: 100%;
+}
+
+/* Espaço entre os cards da aba Fechamento */
+#fechamento .card {
+  margin-bottom: 16px;  /* separa os cards uns dos outros */
+}
+
+/* Se quiser que só o Resumo e a Distribuição fiquem mais afastados */
+#fechamento .grid-2 .card {
+  margin-bottom: 0;     /* tira o espaço interno do grid */
+}
+#fechamento .grid-2 {
+  gap: 24px;            /* aumenta espaço horizontal entre os dois */
+  margin-bottom: 20px;  /* dá espaço vertical entre o grid e o próximo card */
+}
+
+/* Centralizar apenas a tabela dentro do card da aba Valores dos Exames */
+#procedimentos table {
+  margin: left;     /* centraliza a tabela */
+  width: 80%;         /* ajusta a largura da tabela (pode trocar por 100%) */
+}
+
+#procedimentos th,
+#procedimentos td {
+  text-align: center; /* centraliza o conteúdo das células */
+}
+
+#totaisRecebimentos {
+  margin-top: 15px;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 6px;
+}
+
+#totaisRecebimentos .line {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+#tabelaRecebimentos td:nth-last-child(3),
+#tabelaRecebimentos td:nth-last-child(2) {
+  font-weight: 700;
+}
+
+#tabelaRelatorio td:nth-last-child(2),
+#tabelaRelatorio td:nth-last-child(1) {
+  font-weight: 700;
+}
+
+/* ===== Relatórios: empilhar e alinhar ===== */
+.relatorios-stack {
+  display: flex;
+  flex-direction: column;   /* um embaixo do outro */
+  gap: 16px;                /* espaço entre relatório e totais */
+}
+
+/* “Indentação” / respiro dentro dos cards (se quiser ajustar só aqui) */
+.card--report,
+.card--totais {
+  padding: 16px;            /* já tem padrão, mas deixo explícito */
+}
+
+/* Tabela 100% e alinhamentos úteis (valores à direita) */
+#tabelaRelatorio {
+  width: 100%;
+}
+
+#tabelaRelatorio th, 
+#tabelaRelatorio td {
+  vertical-align: middle;
+}
+
+/* Coluna 4 = Valor; 12 = Valor Exames; 13 = Total Atendimento */
+#tabelaRelatorio th:nth-child(4),
+#tabelaRelatorio td:nth-child(4),
+#tabelaRelatorio th:nth-child(12),
+#tabelaRelatorio td:nth-child(12),
+#tabelaRelatorio th:nth-child(13),
+#tabelaRelatorio td:nth-child(13) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Deixar texto (paciente/observações) com largura confortável */
+#tabelaRelatorio td:nth-child(3) {   /* Paciente */
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Capricho: linhas zebras (opcional) */
+#tabelaRelatorio tbody tr:nth-child(odd) {
+  background: #fafafa;
+}
+
+#formFiltros { margin-bottom: 16px; }
+
+/* ===== Relatórios: empilhar e alinhar ===== */
+.relatorios-stack {
+  display: flex;
+  flex-direction: column;   /* um embaixo do outro */
+  gap: 16px;                /* espaço entre relatório e totais */
+}
+
+/* “Indentação” / respiro dentro dos cards (se quiser ajustar só aqui) */
+.card--report,
+.card--totais {
+  padding: 16px;            /* já tem padrão, mas deixo explícito */
+}
+
+/* Tabela 100% e alinhamentos úteis (valores à direita) */
+#tabelaRelatorio {
+  width: 100%;
+}
+
+#tabelaRelatorio th, 
+#tabelaRelatorio td {
+  vertical-align: middle;
+}
+
+/* Coluna 4 = Valor; 12 = Valor Exames; 13 = Total Atendimento */
+#tabelaRelatorio th:nth-child(4),
+#tabelaRelatorio td:nth-child(4),
+#tabelaRelatorio th:nth-child(12),
+#tabelaRelatorio td:nth-child(12),
+#tabelaRelatorio th:nth-child(13),
+#tabelaRelatorio td:nth-child(13) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Deixar texto (paciente/observações) com largura confortável */
+#tabelaRelatorio td:nth-child(3) {   /* Paciente */
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Capricho: linhas zebras (opcional) */
+#tabelaRelatorio tbody tr:nth-child(odd) {
+  background: #fafafa;
+}
+
+#formFiltros { margin-bottom: 16px; }
+
+/* Card Totais menor e centralizado */
+.card--totais {
+  max-width: 500px;   /* controla a largura (pode ajustar 400-600px) */
+  margin: 0 auto;     /* centraliza na tela */
+  padding: 12px 16px; /* deixa mais compacto */
+}
+
+/* Linhas dentro do Totais */
+.card--totais .line {
+  display: flex;
+  justify-content: flex-start; /* coloca os itens lado a lado no início */
+  gap: 12px;                   /* espaço fixo entre título e valor */
+  padding: 4px 0;
+}
+
+/* O valor (pill) não vai grudar no texto, mas fica pertinho */
+.card--totais .pill {
+  font-weight: bold;
+  margin-left: auto; /* opcional: mantém alinhado à direita */
+}
+
+.relatorios-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card--totais {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 12px 16px;
+}
+
+.card--totais .line {
+  display: flex;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.card--totais .pill {
+  font-weight: bold;
+  margin-left: auto;
+}
+
+#tabelaTotais th {
+  background: #fafafa;
+  text-align: left;
+  font-weight: 700;
+}
+
+#tabelaTotais td {
+  text-align: right;
+}
+
+#tabelaTotais td:first-child {
+  text-align: left;
+}
+
+/* Layout lado a lado: Relatório (esquerda) + Totais (direita) */
+.relatorios-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px; /* esquerda ocupa tudo; direita fixa */
+  gap: 16px;
+  align-items: start;
+}
+
+/* Evita que a página crie scroll horizontal:
+   se a tabela do relatório ficar muito larga, o scroll é só dentro do card */
+.card--report {
+  overflow: auto;          /* scroll interno se necessário */
+}
+
+/* Totais como coluna lateral */
+.card--totais {
+  max-width: none;         /* usa a largura fixa da coluna do grid */
+  margin: 0;               /* sem centralizar, fica colado à direita */
+  padding: 12px 16px;
+}
+
+/* Tabela dos Totais: ajustes de alinhamento já existentes continuam válidos */
+#tabelaTotais th {
+  background: #fafafa;
+  text-align: center;
+  font-weight: 700;
+}
+#tabelaTotais td { text-align: right; }
+#tabelaTotais td:first-child { text-align: left; }
+
+/* Responsivo: abaixo de 1100px empilha novamente */
+@media (max-width: 1100px) {
+  .relatorios-grid {
+    grid-template-columns: 1fr; /* empilha: relatório em cima, totais embaixo */
+  }
+  .card--totais { margin-top: 8px; }
+}
+
