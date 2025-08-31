@@ -21,20 +21,119 @@ window._cache = {
   usuarios: [],
   profissionais: [],
   especialidades: [],
-  procedimentos: [] // [{id,nome,valor_cartao,valor_particular}]
+  procedimentos: [] // [{id,nome,valor_cartao,valor_particular,valor_otica}]
 };
 
 /* ===========================
-   Somas com exames
+   Datas & Horário (ajuste de fuso)
 =========================== */
+// Se o banco devolve "YYYY-MM-DD HH:MM:SS" SEM timezone, indique aqui se é UTC
+const DB_TIME_IS_UTC = true; // mude para false se o backend já grava hora local
+
+function parseServerTS(ts) {
+  if (!ts) return null;
+  const s = String(ts).trim();
+
+  // Já tem timezone? (ex.: 2025-08-31T14:00:00-03:00 ou ...Z)
+  if (/[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(s)) {
+    return new Date(s.replace(" ", "T"));
+  }
+
+  // Formato comum: "YYYY-MM-DD HH:MM:SS" (sem TZ)
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return new Date(s); // fallback
+
+  const [, y, mo, da, h, mi, se = "0"] = m;
+  if (DB_TIME_IS_UTC) {
+    // Trata como UTC e deixa o JS converter para local
+    return new Date(Date.UTC(+y, +mo - 1, +da, +h, +mi, +se));
+    } else {
+    // Trata como hora local já correta
+    return new Date(+y, +mo - 1, +da, +h, +mi, +se);
+  }
+}
+const fmtTS = (ts) => {
+  const d = parseServerTS(ts);
+  return d && !isNaN(d) ? d.toLocaleString("pt-BR") : "—";
+};
+
+/* ===========================
+   Cache e Normalização de Exames
+=========================== */
+async function ensureProcedimentosCache() {
+  if (!window._cache.procedimentos || !window._cache.procedimentos.length) {
+    const r = await API.proc.list();
+    window._cache.procedimentos = r.data || [];
+  }
+}
+function buildProcMaps() {
+  const arr = window._cache.procedimentos || [];
+  return {
+    byId:   Object.fromEntries(arr.map(p => [String(p.id), p])),
+    byName: Object.fromEntries(arr.map(p => [p.nome, p])),
+  };
+}
+/** Normaliza exames de um registro vindo do relatório, independente do formato */
+function normalizeExamesRecord(r, maps) {
+  // 1) Se já veio array de exames (ideal)
+  if (Array.isArray(r.exames) && r.exames.length) {
+    return r.exames.map(e => {
+      const ref = maps.byName[e.nome] || maps.byId[String(e.id || "")] || {};
+      return {
+        id: e.id ?? ref.id ?? null,
+        nome: e.nome ?? ref.nome ?? "",
+        valor_cartao: Number(e.valor_cartao ?? ref.valor_cartao ?? 0),
+        valor_particular: Number(e.valor_particular ?? ref.valor_particular ?? 0),
+        valor_otica: Number(e.valor_otica ?? ref.valor_otica ?? 0),
+      };
+    });
+  }
+  // 2) CSV de IDs
+  const idsCSV = r.procedimento_id_list || r.exames_ids || r.procedimentos_ids;
+  if (idsCSV) {
+    return String(idsCSV)
+      .split(",").map(s => s.trim()).filter(Boolean)
+      .map(id => {
+        const p = maps.byId[String(id)];
+        return p ? {
+          id: p.id, nome: p.nome,
+          valor_cartao: Number(p.valor_cartao || 0),
+          valor_particular: Number(p.valor_particular || 0),
+          valor_otica: Number(p.valor_otica || 0),
+        } : null;
+      }).filter(Boolean);
+  }
+  // 3) String de nomes
+  const nomesStr = r.exames_nomes || r.procedimentos || r.examesLista || r.exames_nomes_joined;
+  if (nomesStr) {
+    return String(nomesStr)
+      .split(",").map(s => s.trim()).filter(Boolean)
+      .map(nome => {
+        const p = maps.byName[nome] || {};
+        return {
+          id: p.id ?? null, nome,
+          valor_cartao: Number(p.valor_cartao || 0),
+          valor_particular: Number(p.valor_particular || 0),
+          valor_otica: Number(p.valor_otica || 0),
+        };
+      });
+  }
+  return [];
+}
+
+/* ===========================
+   Preço por Tabela e Total com Exames
+=========================== */
+function priceForTabela(proc, tabelaLower) {
+  if (tabelaLower === 'particular') return Number(proc.valor_particular || 0);
+  if (tabelaLower.includes('cart')) return Number(proc.valor_cartao || 0);
+  if (tabelaLower.includes('ótica') || tabelaLower.includes('otica')) return Number(proc.valor_otica || 0);
+  return 0;
+}
 function totalAtendimentoComExames(rec) {
-  const usarParticular = (rec.tabela || '').toLowerCase() === 'particular';
-  const usarCartao     = (rec.tabela || '').toLowerCase().includes('cart');
-  let valorExames = 0;
-  (rec.exames || []).forEach((info) => {
-    if (usarParticular) valorExames += Number(info.valor_particular || 0);
-    else if (usarCartao) valorExames += Number(info.valor_cartao || 0);
-  });
+  const t = (rec.tabela || '').toLowerCase();
+  const exames = rec._exames || rec.exames || [];
+  const valorExames = exames.reduce((acc, info) => acc + priceForTabela(info, t), 0);
   return Number(rec.valor || 0) + valorExames;
 }
 
@@ -281,8 +380,8 @@ async function renderListaCaixas() {
 
   const rows = lista
     .map(c => {
-      const abertura = c.aberto_em ? new Date(c.aberto_em).toLocaleString('pt-BR') : '—';
-      const fechamento = c.encerrado_em ? new Date(c.encerrado_em).toLocaleString('pt-BR') : '—';
+      const abertura   = c.aberto_em    ? fmtTS(c.aberto_em)    : '—';
+      const fechamento = c.encerrado_em ? fmtTS(c.encerrado_em) : '—';
       return `<tr>
         <td>${c.data_caixa}</td>
         <td>${c.usuario_nome}</td>
@@ -357,10 +456,11 @@ function updateExamesTotalInfo() {
   const tabelaLower = (el("#tabela")?.value || "").toLowerCase();
 
   const total = sel.reduce((acc, n) => {
-    const v = mapByName[n] || { valor_cartao: 0, valor_particular: 0 };
+    const v = mapByName[n] || { valor_cartao: 0, valor_particular: 0, valor_otica: 0 };
     if (tabelaLower === "particular") return acc + Number(v.valor_particular || 0);
     if (tabelaLower.includes("cart")) return acc + Number(v.valor_cartao || 0);
-    return acc + 0;
+    if (tabelaLower.includes("ótica") || tabelaLower.includes("otica")) return acc + Number(v.valor_otica || 0);
+    return acc;
   }, 0);
 
   const legendaTabela = tabelaLower ? ` (Tabela: ${el("#tabela").value})` : "";
@@ -384,14 +484,21 @@ async function renderProcedimentos() {
         <td>${p.nome}</td>
         <td>${fmt(p.valor_cartao)}</td>
         <td>${fmt(p.valor_particular)}</td>
+        <td>${fmt(p.valor_otica || 0)}</td>
         <td>
-          <button class="btn btn-outline" data-edit="${p.id}" data-nome="${p.nome}" data-vc="${p.valor_cartao}" data-vp="${p.valor_particular}">Editar</button>
+          <button class="btn btn-outline"
+            data-edit="${p.id}"
+            data-nome="${p.nome}"
+            data-vc="${p.valor_cartao}"
+            data-vp="${p.valor_particular}"
+            data-vo="${p.valor_otica || 0}"
+          >Editar</button>
           <button class="btn" data-del="${p.id}">Excluir</button>
         </td>
       </tr>
     `).join("");
 
-  tb.innerHTML = linhas || `<tr><td colspan="4">Nenhum exame cadastrado.</td></tr>`;
+  tb.innerHTML = linhas || `<tr><td colspan="5">Nenhum exame cadastrado.</td></tr>`;
 
   // Editar → preenche o form
   tb.querySelectorAll("[data-edit]").forEach((btn) => {
@@ -399,6 +506,8 @@ async function renderProcedimentos() {
       el("#procNome").value = btn.dataset.nome;
       el("#procValorCartao").value = Number(btn.dataset.vc) || 0;
       el("#procValorParticular").value = Number(btn.dataset.vp) || 0;
+      const vo = el("#procValorOtica");
+      if (vo) vo.value = Number(btn.dataset.vo) || 0;
     });
   });
 
@@ -424,13 +533,16 @@ function setupProcedimentos() {
     const nome        = el("#procNome").value.trim();
     const cartao      = parseNumber(el("#procValorCartao").value);
     const particular  = parseNumber(el("#procValorParticular").value);
+    const oticaInp    = el("#procValorOtica");
+    const otica       = oticaInp ? parseNumber(oticaInp.value) : 0;
     if (!nome) { alert("Informe o nome do exame."); return; }
-    const r = await API.proc.upsert(nome, cartao, particular);
+    const r = await API.proc.upsert(nome, cartao, particular, otica); // 4º parâmetro: Ótica
     if (!r.ok) { alert(r.erro || "Erro ao salvar exame"); return; }
 
     el("#procNome").value = "";
     el("#procValorCartao").value = "";
     el("#procValorParticular").value = "";
+    if (oticaInp) oticaInp.value = "";
 
     await renderProcedimentos();
     renderChipsExames();
@@ -662,26 +774,26 @@ async function renderRecebimentosDoDia() {
   const tb = el("#tabelaRecebimentos tbody");
   if (!tb) return;
 
+  await ensureProcedimentosCache();
+  const maps = buildProcMaps();
+
   const hoje = yyyyMMdd(new Date());
   const cxResp = await API.caixa.getByDia(state.usuarioAtivo, hoje);
   const cx = cxResp.data;
-  const lista = cx ? ((await API.rec.listByCaixa(cx.id)).data || []) : [];
+  const listaRaw = cx ? ((await API.rec.listByCaixa(cx.id)).data || []) : [];
+
+  // Normaliza exames para garantir preços (inclui Ótica)
+  const lista = listaRaw.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
   const linhas = lista.map((r) => {
-    const usarParticular = (r.tabela || '').toLowerCase() === 'particular';
-    const usarCartao     = (r.tabela || '').toLowerCase().includes('cart');
-    let totalExames = 0;
-    const examesNomes = (r.exames || []).map(x=>x.nome).join(", ");
-    (r.exames || []).forEach((info) => {
-      if (usarParticular) totalExames += Number(info.valor_particular || 0);
-      else if (usarCartao) totalExames += Number(info.valor_cartao || 0);
-    });
-
+    const t = (r.tabela || '').toLowerCase();
+    const totalExames = (r._exames || []).reduce((acc, info) => acc + priceForTabela(info, t), 0);
+    const examesNomes = (r._exames || []).map(x=>x.nome).join(", ");
     const totalAtendimento = Number(r.valor || 0) + totalExames;
 
     return `
       <tr>
-        <td>${new Date(r.created_at).toLocaleString("pt-BR")}</td>
+        <td>${fmtTS(r.created_at)}</td>
         <td>${r.paciente_nome}</td>
         <td>${fmt(r.valor)}</td>
         <td>${r.forma_pagamento}</td>
@@ -700,19 +812,13 @@ async function renderRecebimentosDoDia() {
 
   tb.innerHTML = linhas || `<tr><td colspan="13">Nenhum lançamento hoje.</td></tr>`;
 
-  // Totais abaixo
+  // Totais abaixo (base + exames)
   const totaisEl = el("#totaisRecebimentos");
   if (totaisEl) {
     const totalRecebido = lista.reduce((a, r) => a + Number(r.valor || 0), 0);
     const totalExamesDia = lista.reduce((acc, r) => {
-      const usarParticular = (r.tabela || '').toLowerCase() === 'particular';
-      const usarCartao     = (r.tabela || '').toLowerCase().includes('cart');
-      let soma = 0;
-      (r.exames || []).forEach((info) => {
-        if (usarParticular) soma += Number(info.valor_particular || 0);
-        else if (usarCartao) soma += Number(info.valor_cartao || 0);
-      });
-      return acc + soma;
+      const t = (r.tabela || '').toLowerCase();
+      return acc + (r._exames || []).reduce((s, info) => s + priceForTabela(info, t), 0);
     }, 0);
 
     totaisEl.innerHTML = `
@@ -775,7 +881,7 @@ async function renderSaidasDoDia() {
   tb.innerHTML = lista.length
     ? lista.map((x) => `
         <tr>
-          <td>${new Date(x.created_at).toLocaleString("pt-BR")}</td>
+          <td>${fmtTS(x.created_at)}</td>
           <td>${x.descricao}</td>
           <td>${x.origem}</td>
           <td>${fmt(x.valor)}</td>
@@ -790,18 +896,31 @@ async function renderSaidasDoDia() {
 =========================== */
 function hydrateFiltros() {
   const usuarios = window._cache.usuarios || [];
-  const sel = el("#filtroUsuario");
-  if (sel) {
-    sel.innerHTML = `<option value="">Todos</option>${
+  const selUser = el("#filtroUsuario");
+  if (selUser) {
+    selUser.innerHTML = `<option value="">Todos</option>${
       usuarios.map(u => `<option value="${u.id}">${u.nome}</option>`).join("")
     }`;
-    // 👉 por padrão, filtra pelo usuário logado
-    if (state.usuarioAtivo) sel.value = String(state.usuarioAtivo);
+    if (state.usuarioAtivo) selUser.value = String(state.usuarioAtivo);
   }
+
+  // popula exames para filtro "Exame específico"
+  const selExame = el("#filtroExameNome");
+  (async () => {
+    await ensureProcedimentosCache();
+    if (selExame) {
+      selExame.innerHTML = `<option value="">Todos</option>${
+        (window._cache.procedimentos||[])
+          .sort((a,b)=>a.nome.localeCompare(b.nome))
+          .map(p=>`<option value="${p.nome}">${p.nome}</option>`).join("")
+      }`;
+    }
+  })();
 }
+
 async function aplicarFiltros() {
-  const tbWrap    = el("#tabelaRelatorio tbody");
-  const tbTotais  = el("#tabelaTotais tbody");
+  const tbWrap   = el("#tabelaRelatorio tbody");
+  const tbTotais = el("#tabelaTotais tbody");
   if (!tbWrap || !tbTotais) return;
 
   const q = {
@@ -816,56 +935,63 @@ async function aplicarFiltros() {
     especialidade_id: (el("#filtroEsp")?.value || ""),
     texto:   (el("#filtroTexto")?.value || "")
   };
+  const examesMode = (el("#filtroExamesMode")?.value || ""); // "", "com", "sem"
+  const exameNome  = (el("#filtroExameNome")?.value  || ""); // "" ou nome
 
   const resp = await API.relatorio.recebimentos(q);
   let lista = resp.data || [];
 
-  // 🔒 Garantia no front: se vier tudo do backend, filtramos pelo usuário pedido
+  // Garantia cache procedimentos + mapas
+  await ensureProcedimentosCache();
+  const maps = buildProcMaps();
+
+  // 🔒 Filtra por usuário (garantia no front)
   if (q.usuario_id) {
     const uid   = String(q.usuario_id);
     const uNome = (window._cache.usuarios || []).find(u => String(u.id) === uid)?.nome;
-
     lista = lista.filter(r => {
       if (r.usuario_id != null)           return String(r.usuario_id) === uid;
       if (r.caixa_usuario_id != null)     return String(r.caixa_usuario_id) === uid;
       if (uNome && (r.usuario_nome || r.caixa_usuario_nome)) {
         return (r.usuario_nome === uNome) || (r.caixa_usuario_nome === uNome);
       }
-      return true; // se não der pra identificar, não bloqueia (fallback)
+      return true;
     });
   }
 
-  // Enriquecimento (cálculo de exames conforme tabela)
-  const enriched = lista.map((r) => {
-    const usarParticular = (r.tabela || '').toLowerCase() === 'particular';
-    const usarCartao     = (r.tabela || '').toLowerCase().includes('cart');
-    let valorExames = 0;
-    (r.exames || []).forEach(info => {
-      if (usarParticular) valorExames += Number(info.valor_particular || 0);
-      else if (usarCartao) valorExames += Number(info.valor_cartao || 0);
-    });
+  // Normaliza exames de todos os registros (1x só)
+  let rows = lista.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
+
+  // 🔎 Filtros de exames
+  if (examesMode === "com") rows = rows.filter(r => r._exames.length > 0);
+  if (examesMode === "sem") rows = rows.filter(r => r._exames.length === 0);
+  if (exameNome)           rows = rows.filter(r => r._exames.some(e => e.nome === exameNome));
+
+  // Enriquecimento (exames conforme TABELA)
+  const enriched = rows.map((r) => {
+    const t = (r.tabela || '').toLowerCase();
+    const valorExames = (r._exames || []).reduce((acc, info) => acc + priceForTabela(info, t), 0);
     const totalAtendimento = Number(r.valor || 0) + valorExames;
     return { ...r, _valorExames: valorExames, _totalAtendimento: totalAtendimento };
   });
 
   // Tabela
   const linhas = enriched.map((r) => `
-      <tr>
-        <td>${new Date(r.created_at).toLocaleString("pt-BR")}</td>
-        <td>${r.paciente_nome}</td>
-        <td>${fmt(r.valor)}</td>
-        <td>${r.forma_pagamento}</td>
-        <td>${r.tabela}</td>
-        <td>${r.baixa}</td>
-        <td>${r.indicador}</td>
-        <td>${r.profissional_nome || "—"}</td>
-        <td>${r.especialidade_nome || "—"}</td>
-        <td>${(r.exames||[]).map(x=>x.nome).join(", ") || "—"}</td>
-        <td>${fmt(r._valorExames)}</td>
-        <td><strong>${fmt(r._totalAtendimento)}</strong></td>
-      </tr>
-    `).join("");
-
+    <tr>
+      <td>${fmtTS(r.created_at)}</td>
+      <td>${r.paciente_nome}</td>
+      <td>${fmt(r.valor)}</td>
+      <td>${r.forma_pagamento}</td>
+      <td>${r.tabela}</td>
+      <td>${r.baixa}</td>
+      <td>${r.indicador}</td>
+      <td>${r.profissional_nome || "—"}</td>
+      <td>${r.especialidade_nome || "—"}</td>
+      <td>${(r._exames||[]).map(x=>x.nome).join(", ") || "—"}</td>
+      <td>${fmt(r._valorExames)}</td>
+      <td><strong>${fmt(r._totalAtendimento)}</strong></td>
+    </tr>
+  `).join("");
   tbWrap.innerHTML = linhas || `<tr><td colspan="12">Sem resultados no filtro.</td></tr>`;
 
   // Totais
@@ -873,19 +999,16 @@ async function aplicarFiltros() {
   const addBy = (key) =>
     Object.entries(enriched.reduce((acc, x)=>{
       const k = x[key] || "—";
-      acc[k] = (acc[k]||0) + Number(x.valor||0);
+      acc[k] = (acc[k]||0) + Number(x.valor||0); // agrupamentos pela base (mantido)
       return acc;
     }, {})).sort((a,b)=> b[1]-a[1]);
 
   // Totais por Exame (respeitando tabela)
   const somaPorExame = {};
   enriched.forEach(r => {
-    (r.exames||[]).forEach(info=>{
-      const usarParticular = (r.tabela||'').toLowerCase()==='particular';
-      const usarCartao     = (r.tabela||'').toLowerCase().includes('cart');
-      let preco=0;
-      if (usarParticular) preco = Number(info.valor_particular||0);
-      else if (usarCartao) preco = Number(info.valor_cartao||0);
+    (r._exames||[]).forEach(info=>{
+      const t = (r.tabela||'').toLowerCase();
+      const preco = priceForTabela(info, t);
       somaPorExame[info.nome] = (somaPorExame[info.nome]||0) + preco;
     });
   });
@@ -908,7 +1031,6 @@ async function aplicarFiltros() {
     }
   `;
 }
-
 
 function exportarCSV() {
   const headers = [
@@ -956,6 +1078,8 @@ async function refreshKPIs() {
     return;
   }
 
+  await ensureProcedimentosCache();
+
   // --- caixa do dia (apenas do usuário ativo) ---
   const hojeStr = yyyyMMdd(new Date());
   const cxResp  = await API.caixa.getByDia(state.usuarioAtivo, hojeStr);
@@ -966,13 +1090,14 @@ async function refreshKPIs() {
   let saidasHoje        = 0;
 
   if (cx) {
+    const maps = buildProcMaps();
     // Recebimentos do DIA desse caixa + exames
     const recDia = await API.relatorio.recebimentos({
       inicio: cx.data_caixa,
       fim:    cx.data_caixa,
       usuario_id: state.usuarioAtivo,
     });
-    const listaDia = recDia.data || [];
+    const listaDia = (recDia.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
     totalDiaComExames = listaDia.reduce((acc, r) => acc + totalAtendimentoComExames(r), 0);
     dinheiroHoje      = listaDia
@@ -989,12 +1114,13 @@ async function refreshKPIs() {
   const inicioMes   = new Date(agora.getFullYear(), agora.getMonth(), 1).toISOString().slice(0, 10);
   const fimMesHoje  = yyyyMMdd(agora);
 
+  const mapsMes = buildProcMaps();
   const recMes = await API.relatorio.recebimentos({
     inicio: inicioMes,
     fim:    fimMesHoje,
     usuario_id: state.usuarioAtivo,
   });
-  const listaMes = recMes.data || [];
+  const listaMes = (recMes.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, mapsMes) }));
   const totalMesComExames = listaMes.reduce((acc, r) => acc + totalAtendimentoComExames(r), 0);
 
   if (kHoje) kHoje.textContent = fmt(totalDiaComExames);  // APENAS o caixa atual (dia) + exames
@@ -1005,6 +1131,9 @@ async function refreshKPIs() {
 
 async function renderChartsDashboard() {
   if (!state.usuarioAtivo) return;
+
+  await ensureProcedimentosCache();
+  const maps = buildProcMaps();
 
   // Mês corrente
   const hoje      = new Date();
@@ -1017,7 +1146,7 @@ async function renderChartsDashboard() {
     fim:    fimHoje,
     usuario_id: state.usuarioAtivo,
   });
-  const recs = respMes.data || [];
+  const recs = (respMes.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
   // Helper: agrega por chave usando TOTAL (valor + exames)
   const sumByTotal = (arr, key) =>
@@ -1146,6 +1275,9 @@ async function renderFechamento() {
     return;
   }
 
+  await ensureProcedimentosCache();
+  const maps = buildProcMaps();
+
   const cx  = data.caixa;
   const din = data.dinheiro || { saldo_inicial:0, recebido:0, saidas:0, saldo_final:0 };
 
@@ -1156,7 +1288,7 @@ async function renderFechamento() {
     fim: hoje,
     usuario_id: state.usuarioAtivo
   });
-  const lista = rel.data || [];
+  const lista = (rel.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
   let totalGeral = 0;
   const porFormaTotais = {}; // forma -> soma com exames
@@ -1253,6 +1385,15 @@ async function init() {
   if (fFim) fFim.value = yyyyMMdd(hoje);
   hydrateFiltros();
   await aplicarFiltros();
+
+  // Reaplicar ao trocar filtros
+  const filtroUserSel = el("#filtroUsuario");
+  if (filtroUserSel) filtroUserSel.addEventListener("change", aplicarFiltros);
+  ["#filtroExamesMode", "#filtroExameNome", "#filtroForma", "#filtroTabela", "#filtroBaixa", "#filtroIndicador", "#filtroProf", "#filtroEsp"]
+    .forEach(id => {
+      const s = el(id);
+      if (s) s.addEventListener("change", aplicarFiltros);
+    });
 
   // Dashboard + Fechamento
   await refreshKPIs();

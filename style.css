@@ -827,3 +827,17 @@ input[type="number"] { text-align:right; }
   .card--totais { margin-top: 8px; }
 }
 
+/* Procedimentos: largura total e ações na mesma linha */
+#tabelaProcedimentos { width: 100%; table-layout: auto; }
+#tabelaProcedimentos th, #tabelaProcedimentos td { vertical-align: middle; }
+
+#tabelaProcedimentos td:last-child,
+#tabelaProcedimentos th:last-child { white-space: nowrap; }
+
+#tabelaProcedimentos td:last-child .btn { 
+  display: inline-flex; 
+  align-items: center; 
+  gap: 6px; 
+  margin-right: 6px; 
+}
+
