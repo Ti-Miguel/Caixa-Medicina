@@ -82,11 +82,13 @@ const API = {
   },
 
   // Recebimentos
-  rec: {
-    add: (payload) => API.post("rec.add", payload),
-    listByCaixa: (caixa_id) =>
-      API.get({ action: "rec.listByCaixa", caixa_id }),
-  },
+rec: {
+  add: (payload) => API.post("rec.add", payload),
+  listByCaixa: (caixa_id) => API.get({ action: "rec.listByCaixa", caixa_id }),
+  update: (payload) => API.post("rec.update", payload), // precisa estar aqui
+  del: (id) => API.post("rec.del", { id }),             // e aqui
+},
+
 
   // Saídas
   saida: {
@@ -95,10 +97,13 @@ const API = {
       API.get({ action: "saida.listByCaixa", caixa_id }),
   },
 
+
   // Relatórios
-  relatorio: {
-    recebimentos: (q) => API.get({ action: "relatorio.recebimentos", ...q }),
-  },
+relatorio: {
+  recebimentos: (q) => API.get({ action: "relatorio.recebimentos", ...q }),
+  totais: (q) => API.get({ action: "relatorio.totais", ...q }), // 👈 NOVO
+},
+
 
   // Dashboard & Fechamento
   kpis: (usuario_id) => API.get({ action: "dashboard.kpis", usuario_id }),

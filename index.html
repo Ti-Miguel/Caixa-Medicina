@@ -57,7 +57,6 @@
       <button data-screen="relatorios">Relatórios</button>
       <button data-screen="procedimentos">Valores dos Exames</button>
       <button data-screen="profissionais">Profissionais & Especialidades</button>
-      <button data-screen="dashboard">Dashboard</button>
       <button data-screen="fechamento">Fechamento de Caixa</button>
       <button class="btn-hub" onclick="window.location.href='/hub.html'">↪ Hub de Sistemas</button>
     </aside>
@@ -85,7 +84,6 @@
 
           <div class="full">
             <button class="btn" type="submit">Abrir Caixa</button>
-            <button class="btn btn-outline" type="button" id="btnFecharCaixaDia">Encerrar Caixa do Dia</button>
           </div>
         </form>
 
@@ -228,6 +226,8 @@
                 <th>Valor Exames</th>
                 <th>Total do Atendimento</th>
                 <th>Obs</th>
+                <th>Ações</th>
+
               </tr>
             </thead>
             <tbody></tbody>
@@ -394,24 +394,32 @@
           <div class="card card--report">
             <h3>Recebimentos (Filtrados)</h3>
             <table class="table" id="tabelaRelatorio">
-              <thead>
-                <tr>
-                  <th>Data/Hora</th>
-                  <th>Paciente</th>
-                  <th>Valor</th>
-                  <th>Forma</th>
-                  <th>Tabela</th>
-                  <th>Baixa</th>
-                  <th>Indicador</th>
-                  <th>Profissional</th>
-                  <th>Especialidade</th>
-                  <th>Exames</th>
-                  <th>Valor Exames</th>
-                  <th>Total do Atendimento</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+  <thead>
+    <tr>
+      <th>Data/Hora</th>
+      <th>Paciente</th>
+      <th>CPF</th>
+      <th>Valor</th>
+      <th>Forma</th>
+      <th>Tabela</th>
+      <th>Baixa</th>
+      <th>Indicador</th>
+      <th>Profissional</th>
+      <th>Especialidade</th>
+      <th>Exames</th>
+      <th>Valor Exames</th>
+      <th>Total do Atendimento</th>
+      <th>Obs</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+<div class="filters-inline" id="relatorioPagination" style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+  <button type="button" class="btn btn-outline" id="relPrev">Anterior</button>
+  <button type="button" class="btn btn-outline" id="relNext">Próxima</button>
+  <span id="relInfo" class="muted"></span>
+</div>
+
           </div>
 
           <div class="card card--totais">
@@ -587,6 +595,12 @@
       <!-- FECHAMENTO -->
       <section id="fechamento" class="screen">
         <h2>Fechamento de Caixa</h2>
+    
+        <div style="margin-bottom: .75rem;">
+        <button class="btn btn-outline" type="button" id="btnFecharCaixaDia">Encerrar Caixa do Dia</button>
+        </div>
+      
+
 
         <div class="grid-2">
           <div class="card">

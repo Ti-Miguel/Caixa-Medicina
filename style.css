@@ -629,8 +629,9 @@ input[type="number"] { text-align:right; }
   font-weight: 700;
 }
 
-#tabelaRelatorio td:nth-last-child(2),
-#tabelaRelatorio td:nth-last-child(1) {
+/* Negrito apenas para Valor Exames (12) e Total (13) */
+#tabelaRelatorio td:nth-child(12),
+#tabelaRelatorio td:nth-child(13) {
   font-weight: 700;
 }
 
@@ -840,4 +841,16 @@ input[type="number"] { text-align:right; }
   gap: 6px; 
   margin-right: 6px; 
 }
+
+
+/* Totais: sublinhas de formas de pagamento abaixo do exame */
+#tabelaTotais tr.sub td:first-child .indent {
+  display: inline-block;
+  padding-left: 12px;
+  opacity: .9;
+}
+#tabelaTotais tr.sub td {
+  font-weight: 500; /* um pouco mais leve que o total do exame */
+}
+
 
