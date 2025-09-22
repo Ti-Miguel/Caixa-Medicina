@@ -1246,47 +1246,99 @@ async function aplicarFiltros(page = 1) {
   }
 }
 
-function exportarCSV() {
-  const table = document.getElementById("tabelaRelatorio");
-  if (!table) return;
+async function exportarCSV() {
+  // 1) Filtros atuais
+  const q = {
+    inicio:  (el("#filtroInicio")?.value || "1900-01-01"),
+    fim:     (el("#filtroFim")?.value || "9999-12-31"),
+    usuario_id: (el("#filtroUsuario")?.value || ""),
+    forma:   (el("#filtroForma")?.value || ""),
+    tabela:  (el("#filtroTabela")?.value || ""),
+    baixa:   (el("#filtroBaixa")?.value || ""),
+    indicador: (el("#filtroIndicador")?.value || ""),
+    profissional_id: (el("#filtroProf")?.value || ""),
+    especialidade_id: (el("#filtroEsp")?.value || ""),
+    texto:   (el("#filtroTexto")?.value || "")
+  };
+  const examesMode = (el("#filtroExamesMode")?.value || ""); // "", "com", "sem"
+  const exameNome  = (el("#filtroExameNome")?.value  || ""); // "" ou nome
 
-  // 1) Cabeçalhos exatamente como aparecem
-  const headers = Array.from(table.querySelectorAll("thead th"))
-    .map(th => th.textContent.trim());
+  // 2) Busca TODAS as páginas (robusto mesmo sem meta.total_pages)
+  let page = 1;
+  let all = [];
+  const MAX_PAGES_GUARD = 1000; // trava de segurança
+  while (page <= MAX_PAGES_GUARD) {
+    const resp = await API.relatorio.recebimentos({ ...q, page, _ts: Date.now() });
+    const data = Array.isArray(resp?.data) ? resp.data : [];
+    const meta = resp?.meta || {};
+    const per  = Number(meta.per_page || 50);
+    all = all.concat(data);
 
-  // Descobre o índice da coluna CPF (caso mude ordem no futuro)
-  const idxCPF = headers.findIndex(h => h.toLowerCase() === "cpf");
+    // debug opcional
+    console.debug(`[CSV] página ${meta.page || page}/${meta.total_pages || "?"} — recebidos: ${data.length}`);
 
-  // 2) Linhas exatamente como aparecem (texto visível)
-  const rows = [headers];
-  const trs = Array.from(table.querySelectorAll("tbody tr"));
-  trs.forEach(tr => {
-    const cells = Array.from(tr.querySelectorAll("td")).map(td => td.textContent.trim());
+    // critério 1: temos total_pages?
+    if (meta.total_pages && meta.page && meta.page >= meta.total_pages) break;
+    // critério 2: fallback — acabou porque a página veio “incompleta”
+    if (data.length < per) break;
 
-    // Força CPF como texto para o Excel (evita 1,42E+10 / corte de zeros à esquerda)
-    if (idxCPF >= 0 && cells.length === headers.length) {
-      const raw = (cells[idxCPF] || "").replace(/\s+/g, "");
-      if (raw) cells[idxCPF] = `="${raw}"`;
-    }
+    page++;
+  }
 
-    if (cells.length === headers.length) rows.push(cells);
-  });
+  // 3) Normaliza exames + filtros de exames
+  await ensureProcedimentosCache();
+  const maps = buildProcMaps();
 
-  // 3) Monta CSV preservando o que está na tela
+  let rows = all.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
+  if (examesMode === "com") rows = rows.filter(r => r._exames.length > 0);
+  if (examesMode === "sem") rows = rows.filter(r => r._exames.length === 0);
+  if (exameNome)           rows = rows.filter(r => r._exames.some(e => e.nome === exameNome));
+
+  // 4) Cabeçalhos (iguais à tabela)
+  const headers = [
+    "Data/Hora","Paciente","CPF","Valor","Forma","Tabela","Baixa","Indicador",
+    "Profissional","Especialidade","Exames","Valor Exames","Total do Atendimento","Obs"
+  ];
+
+  const linhas = [headers];
+  for (const r of rows) {
+    const t = (r.tabela || '').toLowerCase();
+    const valorExames = (r._exames || []).reduce((acc, info) => acc + priceForTabela(info, t), 0);
+    const totalAtendimento = Number(r.valor || 0) + valorExames;
+    const examesNomes = (r._exames || []).map(x => x.nome).join(", ");
+
+    // CPF como texto p/ Excel
+    const cpfRaw = String(r.paciente_cpf || r.cpf || "").replace(/\s+/g, "");
+    const cpfCell = cpfRaw ? `="${cpfRaw}"` : "";
+
+    linhas.push([
+      fmtTS(r.created_at),
+      r.paciente_nome || "",
+      cpfCell,
+      fmt(r.valor),
+      r.forma_pagamento || "",
+      r.tabela || "",
+      r.baixa || "",
+      r.indicador || "",
+      r.profissional_nome || "—",
+      r.especialidade_nome || "—",
+      examesNomes || "—",
+      fmt(valorExames),
+      fmt(totalAtendimento),
+      r.observacao || r.obs || ""
+    ]);
+  }
+
+  // 5) Gera CSV (; + BOM)
   const sep = ";";
-  const csv = rows
-    .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(sep))
-    .join("\n");
-
-  // 4) Gera arquivo com BOM UTF-8 (corrige acentuação no Excel)
+  const csv = linhas.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(sep)).join("\n");
   const BOM = "\uFEFF";
   const blob = new Blob([BOM + csv], { type: "text/csv;charset=utf-8;" });
 
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
-  const hoje = new Date().toISOString().slice(0,10);
   a.href = url;
-  a.download = `relatorio_caixa_${hoje}.csv`;
+  a.download = `relatorio_caixa_${q.inicio}_a_${q.fim}_${rows.length}_registros.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
