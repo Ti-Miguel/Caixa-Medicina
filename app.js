@@ -1056,16 +1056,22 @@ async function renderSaidasDoDia() {
    Relatórios + Filtros + CSV
 =========================== */
 function hydrateFiltros() {
-  const usuarios = window._cache.usuarios || [];
+  const all = window._cache.usuarios || [];
+  const usuariosAtivos = all.filter(u => String(u.ativo) === "1" || u.ativo === 1);
+
   const selUser = el("#filtroUsuario");
   if (selUser) {
     selUser.innerHTML = `<option value="">Todos</option>${
-      usuarios.map(u => `<option value="${u.id}">${u.nome}</option>`).join("")
+      usuariosAtivos.map(u => `<option value="${u.id}">${u.nome}</option>`).join("")
     }`;
-    if (state.usuarioAtivo) selUser.value = String(state.usuarioAtivo);
+
+    // mantém default no usuário ativo logado, se ele estiver ativo
+    if (state.usuarioAtivo && usuariosAtivos.some(u => String(u.id) === String(state.usuarioAtivo))) {
+      selUser.value = String(state.usuarioAtivo);
+    }
   }
 
-  // popula exames para filtro "Exame específico"
+  // Exames (mantém igual)
   const selExame = el("#filtroExameNome");
   (async () => {
     await ensureProcedimentosCache();
@@ -1078,6 +1084,7 @@ function hydrateFiltros() {
     }
   })();
 }
+
 
 async function aplicarFiltros(page = 1) {
   const tbWrap   = el("#tabelaRelatorio tbody");
