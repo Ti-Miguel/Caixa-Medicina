@@ -1253,105 +1253,70 @@ async function aplicarFiltros(page = 1) {
   }
 }
 
-async function exportarCSV() {
-  // 1) Filtros atuais
-  const q = {
-    inicio:  (el("#filtroInicio")?.value || "1900-01-01"),
-    fim:     (el("#filtroFim")?.value || "9999-12-31"),
-    usuario_id: (el("#filtroUsuario")?.value || ""),
-    forma:   (el("#filtroForma")?.value || ""),
-    tabela:  (el("#filtroTabela")?.value || ""),
-    baixa:   (el("#filtroBaixa")?.value || ""),
-    indicador: (el("#filtroIndicador")?.value || ""),
-    profissional_id: (el("#filtroProf")?.value || ""),
-    especialidade_id: (el("#filtroEsp")?.value || ""),
-    texto:   (el("#filtroTexto")?.value || "")
-  };
-  const examesMode = (el("#filtroExamesMode")?.value || ""); // "", "com", "sem"
-  const exameNome  = (el("#filtroExameNome")?.value  || ""); // "" ou nome
+function exportarCSV() {
+  const table = document.getElementById("tabelaRelatorio");
+  if (!table) return;
 
-  // 2) Busca TODAS as páginas (robusto mesmo sem meta.total_pages)
-  let page = 1;
-  let all = [];
-  const MAX_PAGES_GUARD = 1000; // trava de segurança
-  while (page <= MAX_PAGES_GUARD) {
-    const resp = await API.relatorio.recebimentos({ ...q, page, _ts: Date.now() });
-    const data = Array.isArray(resp?.data) ? resp.data : [];
-    const meta = resp?.meta || {};
-    const per  = Number(meta.per_page || 50);
-    all = all.concat(data);
+  // 1) Cabeçalhos exatamente como aparecem
+  const headers = Array.from(table.querySelectorAll("thead th"))
+    .map(th => th.textContent.trim());
 
-    // debug opcional
-    console.debug(`[CSV] página ${meta.page || page}/${meta.total_pages || "?"} — recebidos: ${data.length}`);
+  // Índices de colunas especiais
+  const idxCPF = headers.findIndex(h => h.toLowerCase() === "cpf");
+  const moneyTargets = ["valor", "valor exames", "total do atendimento"];
+  const moneyIdxs = headers
+    .map((h, i) => ({ h: h.toLowerCase(), i }))
+    .filter(x => moneyTargets.includes(x.h))
+    .map(x => x.i);
 
-    // critério 1: temos total_pages?
-    if (meta.total_pages && meta.page && meta.page >= meta.total_pages) break;
-    // critério 2: fallback — acabou porque a página veio “incompleta”
-    if (data.length < per) break;
+  // 2) Linhas exatamente como aparecem
+  const rows = [headers];
+  const trs = Array.from(table.querySelectorAll("tbody tr"));
+  trs.forEach(tr => {
+    const cells = Array.from(tr.querySelectorAll("td")).map(td => td.textContent.trim());
 
-    page++;
-  }
+    if (cells.length !== headers.length) return;
 
-  // 3) Normaliza exames + filtros de exames
-  await ensureProcedimentosCache();
-  const maps = buildProcMaps();
+    // Força CPF como texto no Excel
+    if (idxCPF >= 0) {
+      const raw = (cells[idxCPF] || "").replace(/\s+/g, "");
+      if (raw) cells[idxCPF] = `="${raw}"`;
+    }
 
-  let rows = all.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
-  if (examesMode === "com") rows = rows.filter(r => r._exames.length > 0);
-  if (examesMode === "sem") rows = rows.filter(r => r._exames.length === 0);
-  if (exameNome)           rows = rows.filter(r => r._exames.some(e => e.nome === exameNome));
+    // Remove "R$" e espaços das colunas monetárias (mantém milhar/decimal BR)
+    moneyIdxs.forEach(ix => {
+      if (ix >= 0 && cells[ix] != null) {
+        // ex.: "R$ 1.234,56" -> "1.234,56"
+        let s = String(cells[ix]).replace(/\s+/g, "");
+        s = s.replace(/^R\$\s?/, "");     // tira "R$"
+        s = s.replace(/[^\d.,-]/g, "");   // mantém apenas dígitos, . , e -
+        cells[ix] = s;
+      }
+    });
 
-  // 4) Cabeçalhos (iguais à tabela)
-  const headers = [
-    "Data/Hora","Paciente","CPF","Valor","Forma","Tabela","Baixa","Indicador",
-    "Profissional","Especialidade","Exames","Valor Exames","Total do Atendimento","Obs"
-  ];
+    rows.push(cells);
+  });
 
-  const linhas = [headers];
-  for (const r of rows) {
-    const t = (r.tabela || '').toLowerCase();
-    const valorExames = (r._exames || []).reduce((acc, info) => acc + priceForTabela(info, t), 0);
-    const totalAtendimento = Number(r.valor || 0) + valorExames;
-    const examesNomes = (r._exames || []).map(x => x.nome).join(", ");
-
-    // CPF como texto p/ Excel
-    const cpfRaw = String(r.paciente_cpf || r.cpf || "").replace(/\s+/g, "");
-    const cpfCell = cpfRaw ? `="${cpfRaw}"` : "";
-
-    linhas.push([
-      fmtTS(r.created_at),
-      r.paciente_nome || "",
-      cpfCell,
-      fmt(r.valor),
-      r.forma_pagamento || "",
-      r.tabela || "",
-      r.baixa || "",
-      r.indicador || "",
-      r.profissional_nome || "—",
-      r.especialidade_nome || "—",
-      examesNomes || "—",
-      fmt(valorExames),
-      fmt(totalAtendimento),
-      r.observacao || r.obs || ""
-    ]);
-  }
-
-  // 5) Gera CSV (; + BOM)
+  // 3) Monta CSV preservando acentuação e formato BR (separador ;)
   const sep = ";";
-  const csv = linhas.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(sep)).join("\n");
+  const csv = rows
+    .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(sep))
+    .join("\n");
+
+  // 4) Gera arquivo com BOM UTF-8 (Excel PT-BR)
   const BOM = "\uFEFF";
   const blob = new Blob([BOM + csv], { type: "text/csv;charset=utf-8;" });
 
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
+  const hoje = new Date().toISOString().slice(0,10);
   a.href = url;
-  a.download = `relatorio_caixa_${q.inicio}_a_${q.fim}_${rows.length}_registros.csv`;
+  a.download = `relatorio_caixa_${hoje}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-
 
 
 /* ===========================
