@@ -1,5 +1,6 @@
 // api-client.js
-const API = {
+window.API = window.API || {};
+Object.assign(window.API, {
   base: "api.php",
 
   // utilidade

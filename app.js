@@ -4,7 +4,7 @@
 const el  = (sel) => document.querySelector(sel);
 const els = (sel) => Array.from(document.querySelectorAll(sel));
 
-const fmt         = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const fmt = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const yyyyMMdd = (d) => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -13,22 +13,17 @@ const yyyyMMdd = (d) => {
 };
 const parseNumber = (v) => (isNaN(parseFloat(v)) ? 0 : parseFloat(v));
 
-// id simples, se precisar
+// id simples
 const genId = (prefix = "id") => `${prefix}_${Math.random().toString(36).slice(2, 9)}_${Date.now().toString(36)}`;
-
-let relState = {
-  page: 1,
-  total_pages: 1,
-  lastQuery: null
-};
-
-let editingRecId = null;
-let _recEditControls = { submitBtn: null, cancelBtn: null };
-
 
 let state = {
   usuarioAtivo: null, // id numérico do usuário
-  caixaAtivo: null    // id numérico do caixa do dia p/ usuário
+  caixaAtivo: null,   // id numérico do caixa do dia p/ usuário
+  rel: {
+    page: 1,
+    totalPages: 1,
+    ultimoFiltro: null, // guarda filtros atuais pra navegação/CSV
+  }
 };
 
 // cache leve
@@ -42,34 +37,97 @@ window._cache = {
 /* ===========================
    Datas & Horário (ajuste de fuso)
 =========================== */
-// Se o banco devolve "YYYY-MM-DD HH:MM:SS" SEM timezone, indique aqui se é UTC
 const DB_TIME_IS_UTC = false;
 
 function parseServerTS(ts) {
   if (!ts) return null;
   const s = String(ts).trim();
 
-  // Já tem timezone? (ex.: 2025-08-31T14:00:00-03:00 ou ...Z)
+  // Já tem timezone?
   if (/[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(s)) {
     return new Date(s.replace(" ", "T"));
   }
 
-  // Formato comum: "YYYY-MM-DD HH:MM:SS" (sem TZ)
+  // "YYYY-MM-DD HH:MM:SS" (sem TZ)
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!m) return new Date(s); // fallback
 
   const [, y, mo, da, h, mi, se = "0"] = m;
   if (DB_TIME_IS_UTC) {
-    // Trata como UTC e deixa o JS converter para local
     return new Date(Date.UTC(+y, +mo - 1, +da, +h, +mi, +se));
-    } else {
-    // Trata como hora local já correta
+  } else {
     return new Date(+y, +mo - 1, +da, +h, +mi, +se);
   }
 }
 const fmtTS = (ts) => {
   const d = parseServerTS(ts);
   return d && !isNaN(d) ? d.toLocaleString("pt-BR") : "—";
+};
+
+/* ===========================
+   API Client
+=========================== */
+const API = {
+  _get: async (params) => {
+    const url = "api.php?" + new URLSearchParams(params).toString();
+    const r = await fetch(url, { credentials: "same-origin" });
+    return r.json();
+  },
+  _post: async (params) => {
+    const fd = new FormData();
+    Object.entries(params).forEach(([k,v]) => fd.append(k, v ?? ""));
+    const r = await fetch("api.php", { method: "POST", body: fd, credentials: "same-origin" });
+    return r.json();
+  },
+  usuarios: {
+    list: () => API._get({ action: "usuarios.list" }),
+    add:  (nome) => API._post({ action: "usuarios.add", nome })
+  },
+  prof: {
+    list: () => API._get({ action: "prof.list" }),
+    add:  (nome) => API._post({ action: "prof.add", nome }),
+    update: (id, nome) => API._post({ action: "prof.update", id, nome }),
+    del: (id) => API._post({ action: "prof.del", id })
+  },
+  esp: {
+    list: () => API._get({ action: "esp.list" }),
+    add:  (nome) => API._post({ action: "esp.add", nome }),
+    update: (id, nome) => API._post({ action: "esp.update", id, nome }),
+    del: (id) => API._post({ action: "esp.del", id })
+  },
+  proc: {
+    list: () => API._get({ action: "proc.list" }),
+    upsert: (nome, valor_cartao, valor_particular, valor_otica=0) =>
+      API._post({ action: "proc.upsert", nome, valor_cartao, valor_particular, valor_otica }),
+    del: (id) => API._post({ action: "proc.del", id })
+  },
+  caixa: {
+    abrir: (usuario_id, data_caixa, saldo_inicial, obs) =>
+      API._post({ action: "caixa.abrir", usuario_id, data_caixa, saldo_inicial, obs }),
+    encerrar: (usuario_id, data_caixa) =>
+      API._post({ action: "caixa.encerrar", usuario_id, data_caixa }),
+    getByDia: (usuario_id, data_caixa) =>
+      API._get({ action: "caixa.getByDia", usuario_id, data_caixa }),
+    list: (ini, fim) =>
+      API._get({ action: "caixa.list", ini, fim })
+  },
+  rec: {
+    add: (payload) => API._post({ action: "rec.add", ...payload }),
+    listByCaixa: (caixa_id) => API._get({ action: "rec.listByCaixa", caixa_id }),
+    update: (payload) => API._post({ action: "rec.update", ...payload }),
+    del: (id) => API._post({ action: "rec.del", id })
+  },
+  saida: {
+    add: (payload) => API._post({ action: "saida.add", ...payload }),
+    listByCaixa: (caixa_id) => API._get({ action: "saida.listByCaixa", caixa_id })
+  },
+  relatorio: {
+    recebimentos: (q) => API._get({ action: "relatorio.recebimentos", ...q }),
+    totais: (q) => API._get({ action: "relatorio.totais", ...q })
+  },
+  fechamento: {
+    doDia: (usuario_id) => API._get({ action: "fechamento.doDia", usuario_id })
+  }
 };
 
 /* ===========================
@@ -193,7 +251,7 @@ async function bootstrap() {
    Navegação do App
 =========================== */
 function setupNav() {
-  const buttons = document.querySelectorAll('.sidebar button');
+  const buttons = document.querySelectorAll('.sidebar button[data-screen]');
   if (!buttons.length) return;
 
   buttons.forEach(btn => {
@@ -234,7 +292,6 @@ function setupNav() {
 /* ===========================
    Sessão / Usuário / Caixa
 =========================== */
-// Mostra o usuário logado no header
 async function hydrateUserHeader() {
   try {
     const r = await fetch("auth.php?action=auth.me", { credentials: "same-origin" });
@@ -245,7 +302,6 @@ async function hydrateUserHeader() {
   } catch {}
 }
 
-// Resiliente: pode não existir <select id="usuarioAtivo">
 async function hydrateUsuarios() {
   if (!window._cache.usuarios?.length) {
     const r = await API.usuarios.list();
@@ -319,7 +375,6 @@ async function encerrarCaixaAtual() {
     return; 
   }
 
-  // se já estava encerrado, só navega para a aba de Fechamento
   if (cx.encerrado_em) { 
     alert("Este caixa já está encerrado.");
     document.querySelector('.sidebar button[data-screen="fechamento"]')?.click();
@@ -334,11 +389,8 @@ async function encerrarCaixaAtual() {
 
   await updateCaixaStatusUI();
   alert("Caixa encerrado!");
-
-  // 👉 vai para a aba "Fechamento de Caixa"
   document.querySelector('.sidebar button[data-screen="fechamento"]')?.click();
 }
-
 
 async function updateCaixaStatusUI() {
   const badge = el("#statusBadge");
@@ -395,7 +447,6 @@ function setupAbertura() {
       el("#obsAbertura").value.trim()
     );
   });
-
 }
 
 /* ===========================
@@ -430,8 +481,8 @@ async function renderListaCaixas() {
 
 function setupFiltroCaixas() {
   const hoje = new Date();
-const inicioMes = yyyyMMdd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
-const fimHoje = yyyyMMdd(hoje);
+  const inicioMes = yyyyMMdd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+  const fimHoje = yyyyMMdd(hoje);
 
   const ini = el('#filtroCxInicio');
   const fim = el('#filtroCxFim');
@@ -568,7 +619,7 @@ function setupProcedimentos() {
     const oticaInp    = el("#procValorOtica");
     const otica       = oticaInp ? parseNumber(oticaInp.value) : 0;
     if (!nome) { alert("Informe o nome do exame."); return; }
-    const r = await API.proc.upsert(nome, cartao, particular, otica); // 4º parâmetro: Ótica
+    const r = await API.proc.upsert(nome, cartao, particular, otica);
     if (!r.ok) { alert(r.erro || "Erro ao salvar exame"); return; }
 
     el("#procNome").value = "";
@@ -732,31 +783,17 @@ async function hydrateProfEspSelects() {
 }
 
 /* ===========================
-   Recebimentos
+   Recebimentos (com Editar/Excluir)
 =========================== */
 function setupRecebimentos() {
   const form = el("#formRecebimento");
   if (!form) return;
 
-  // cria botão "Cancelar edição" ao lado do submit
-  const submitBtn = form.querySelector('button[type="submit"]');
-  const cancelBtn = document.createElement("button");
-  cancelBtn.type = "button";
-  cancelBtn.className = "btn btn-outline";
-  cancelBtn.textContent = "Cancelar edição";
-  cancelBtn.style.marginLeft = "8px";
-  cancelBtn.style.display = "none";
-  submitBtn.parentElement.appendChild(cancelBtn);
-
-  _recEditControls.submitBtn = submitBtn;
-  _recEditControls.cancelBtn = cancelBtn;
-  cancelBtn.addEventListener("click", exitEditMode);
-
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
     if (!state.caixaAtivo) {
-      alert("Abra o caixa para lançar/editar recebimentos.");
+      alert("Abra o caixa para lançar recebimentos.");
       return;
     }
 
@@ -780,15 +817,12 @@ function setupRecebimentos() {
     }
 
     // nomes -> ids
-    if (!window._cache.procedimentos?.length) {
-      const r = await API.proc.list();
-      window._cache.procedimentos = r.data || [];
-    }
+    await ensureProcedimentosCache();
     const ids = window._cache.procedimentos
       .filter(p => examesSel.includes(p.nome))
       .map(p=>p.id).join(',');
 
-    const payload = {
+    const resp = await API.rec.add({
       caixa_id: state.caixaAtivo,
       paciente_nome: pacienteNome,
       paciente_cpf: pacienteCPF,
@@ -801,123 +835,43 @@ function setupRecebimentos() {
       especialidade_id: especialidadeId,
       observacao,
       procedimento_id_list: ids
-    };
+    });
 
-    let resp;
-    if (editingRecId) {
-      // UPDATE
-      resp = await API.rec.update({ id: editingRecId, ...payload });
-    } else {
-      // CREATE
-      resp = await API.rec.add(payload);
-    }
+    if (!resp.ok) { alert(resp.erro || "Erro ao lançar recebimento"); return; }
 
-    if (!resp.ok) {
-      alert(resp.erro || "Erro ao salvar recebimento");
-      return;
-    }
-
-    // sucesso
-    form.reset();
+    el("#formRecebimento").reset();
     els("#chipsExames .chip.active").forEach((ch) => ch.classList.remove("active"));
     updateExamesTotalInfo();
     await renderRecebimentosDoDia();
     await refreshKPIs();
     await renderFechamento();
-    exitEditMode(); // volta ao modo "lançar"
   });
 
   renderChipsExames();
 }
 
-function enterEditMode(rec) {
-  const form = el("#formRecebimento");
-  if (!form) return;
-
-  editingRecId = rec.id;
-
-  el("#pacienteNome").value = rec.paciente_nome || "";
-  el("#pacienteCPF").value  = (rec.paciente_cpf || "").replace(/\D+/g,"");
-  el("#valor").value        = Number(rec.valor || 0);
-  el("#formaPagamento").value = rec.forma_pagamento || "";
-  el("#tabela").value         = rec.tabela || "";
-  el("#baixa").value          = rec.baixa || "";
-  el("#indicador").value      = rec.indicador || "";
-  el("#profissional").value   = rec.profissional_id || "";
-  el("#especialidade").value  = rec.especialidade_id || "";
-  el("#observacao").value     = rec.observacao || "";
-
-  // chips de exames
-  els("#chipsExames .chip").forEach(ch => ch.classList.remove("active"));
-  const nomes = (rec.exames || []).map(e => e.nome);
-  els("#chipsExames .chip").forEach(ch => {
-    if (nomes.includes(ch.dataset.exame)) ch.classList.add("active");
-  });
-  updateExamesTotalInfo();
-
-  if (_recEditControls.submitBtn) _recEditControls.submitBtn.textContent = "Salvar edição";
-  if (_recEditControls.cancelBtn) _recEditControls.cancelBtn.style.display = "inline-block";
-
-  // foco no primeiro campo
-  el("#pacienteNome")?.focus();
-  // rola até o formulário
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function exitEditMode() {
-  const form = el("#formRecebimento");
-  if (form) { form.reset(); }
-  els("#chipsExames .chip.active").forEach((ch) => ch.classList.remove("active"));
-  updateExamesTotalInfo();
-  editingRecId = null;
-
-  if (_recEditControls.submitBtn) _recEditControls.submitBtn.textContent = "Lançar";
-  if (_recEditControls.cancelBtn) _recEditControls.cancelBtn.style.display = "none";
-}
-
-
 async function renderRecebimentosDoDia() {
   const tb = el("#tabelaRecebimentos tbody");
   if (!tb) return;
 
-  // Garante cache de procedimentos (para preços por Tabela) + mapas
   await ensureProcedimentosCache();
   const maps = buildProcMaps();
 
-  // Busca o caixa do dia do usuário ativo
   const hoje = yyyyMMdd(new Date());
   const cxResp = await API.caixa.getByDia(state.usuarioAtivo, hoje);
   const cx = cxResp.data;
+  const listaRaw = cx ? ((await API.rec.listByCaixa(cx.id)).data || []) : [];
 
-  // Se não houver caixa aberto, limpa a tabela e os totais
-  if (!cx) {
-    tb.innerHTML = `<tr><td colspan="14">Nenhum lançamento hoje.</td></tr>`;
-    const totaisEl = el("#totaisRecebimentos");
-    if (totaisEl) {
-      totaisEl.innerHTML = `
-        <div class="line"><strong>Total Recebido:</strong> <span class="pill">${fmt(0)}</span></div>
-        <div class="line"><strong>Somente Exames Complementares:</strong> <span class="pill">${fmt(0)}</span></div>
-      `;
-    }
-    window._recDiaMapById = {};
-    return;
-  }
-
-  // Lista do dia
-  const listaRaw = (await API.rec.listByCaixa(cx.id)).data || [];
-
-  // Normaliza exames para garantir os valores por Tabela (inclui Ótica)
   const lista = listaRaw.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
-  // Monta linhas com coluna Ações
   const linhas = lista.map((r) => {
     const t = (r.tabela || '').toLowerCase();
     const totalExames = (r._exames || []).reduce((acc, info) => acc + priceForTabela(info, t), 0);
-    const examesNomes = (r._exames || []).map(x => x.nome).join(", ");
+    const examesNomes = (r._exames || []).map(x=>x.nome).join(", ");
     const totalAtendimento = Number(r.valor || 0) + totalExames;
 
     return `
-      <tr>
+      <tr data-id="${r.id}">
         <td>${fmtTS(r.created_at)}</td>
         <td>${r.paciente_nome}</td>
         <td>${fmt(r.valor)}</td>
@@ -939,40 +893,9 @@ async function renderRecebimentosDoDia() {
     `;
   }).join("");
 
-  // Observação: colspan = 14 por causa da nova coluna "Ações"
   tb.innerHTML = linhas || `<tr><td colspan="14">Nenhum lançamento hoje.</td></tr>`;
 
-  // Mapa para recuperar o registro bruto (com 'exames') ao clicar em Editar
-  window._recDiaMapById = {};
-  listaRaw.forEach(r => { window._recDiaMapById[r.id] = r; });
-
-  // Listeners de Editar
-  tb.querySelectorAll("[data-edit]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = Number(btn.dataset.edit);
-      const rec = window._recDiaMapById?.[id];
-      if (rec) enterEditMode(rec);
-    });
-  });
-
-  // Listeners de Excluir
-  tb.querySelectorAll("[data-del]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = Number(btn.dataset.del);
-      if (!confirm("Excluir este recebimento?")) return;
-      const rr = await API.rec.del(id);
-      if (!rr.ok) { alert(rr.erro || "Erro ao excluir"); return; }
-      if (typeof editingRecId !== "undefined" && editingRecId === id) {
-        // se estava editando esse, sai do modo edição
-        exitEditMode?.();
-      }
-      await renderRecebimentosDoDia();
-      await refreshKPIs();
-      await renderFechamento();
-    });
-  });
-
-  // Totais (da página do dia exibida)
+  // Totais abaixo (base + exames)
   const totaisEl = el("#totaisRecebimentos");
   if (totaisEl) {
     const totalRecebido = lista.reduce((a, r) => a + Number(r.valor || 0), 0);
@@ -986,8 +909,124 @@ async function renderRecebimentosDoDia() {
       <div class="line"><strong>Somente Exames Complementares:</strong> <span class="pill">${fmt(totalExamesDia)}</span></div>
     `;
   }
+
+  // Bind Editar/Excluir
+  tb.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.dataset.del);
+      if (!confirm("Excluir este recebimento?")) return;
+      const r = await API.rec.del(id);
+      if (!r.ok) { alert(r.erro || "Erro ao excluir"); return; }
+      await renderRecebimentosDoDia();
+      await refreshKPIs();
+      await renderFechamento();
+    });
+  });
+
+  tb.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.addEventListener("click", () => openEditRecebimento(Number(btn.dataset.edit), lista));
+  });
 }
 
+// Editor de recebimento (fallback via prompt se não existir modal no HTML)
+async function openEditRecebimento(id, listaDia) {
+  const rec = (listaDia || []).find(x => Number(x.id) === Number(id));
+  if (!rec) return;
+
+  const hasModal = el("#editModal");
+  if (!hasModal) {
+    // Fallback simples por prompt
+    const novoNome  = prompt("Paciente", rec.paciente_nome || "") ?? rec.paciente_nome;
+    const novoValor = parseFloat(prompt("Valor (número)", rec.valor || 0));
+    if (!novoNome || isNaN(novoValor)) return alert("Dados inválidos.");
+    const payload = {
+      id: rec.id,
+      paciente_nome: novoNome,
+      paciente_cpf: rec.paciente_cpf || "",
+      valor: novoValor,
+      forma_pagamento: rec.forma_pagamento || "",
+      tabela: rec.tabela || "",
+      baixa: rec.baixa || "",
+      indicador: rec.indicador || "",
+      profissional_id: rec.profissional_id || "",
+      especialidade_id: rec.especialidade_id || "",
+      observacao: rec.observacao || "",
+      procedimento_id_list: (rec._exames||[]).map(e=>e.id).filter(Boolean).join(",")
+    };
+    const res = await API.rec.update(payload);
+    if (!res.ok) return alert(res.erro || "Erro ao salvar");
+    await renderRecebimentosDoDia();
+    await refreshKPIs();
+    await renderFechamento();
+    return;
+  }
+
+  // Se você tiver o modal no HTML, aqui você popula e mostra (IDs esperados no index.html)
+  // Exemplo (ajuste conforme seus IDs de inputs do modal):
+  const setVal = (sel, v) => { const n = el(sel); if (n) n.value = v ?? ""; };
+
+  setVal("#edit_id", rec.id);
+  setVal("#edit_paciente", rec.paciente_nome || "");
+  setVal("#edit_cpf", rec.paciente_cpf || "");
+  setVal("#edit_valor", rec.valor || 0);
+  setVal("#edit_forma", rec.forma_pagamento || "");
+  setVal("#edit_tabela", rec.tabela || "");
+  setVal("#edit_baixa", rec.baixa || "");
+  setVal("#edit_indicador", rec.indicador || "");
+  setVal("#edit_obs", rec.observacao || "");
+  setVal("#edit_prof", rec.profissional_id || "");
+  setVal("#edit_esp", rec.especialidade_id || "");
+
+  // exames selecionados
+  await ensureProcedimentosCache();
+  const all = window._cache.procedimentos || [];
+  const wrap = el("#edit_exames_wrap");
+  if (wrap) {
+    wrap.innerHTML = all.map(p=>{
+      const checked = (rec._exames||[]).some(e=>String(e.id)===String(p.id)) ? "checked" : "";
+      return `<label style="display:inline-flex;gap:6px;align-items:center;margin:4px 8px 4px 0">
+        <input type="checkbox" value="${p.id}" ${checked}/> ${p.nome}
+      </label>`;
+    }).join("");
+  }
+
+  el("#editModal").style.display = "block";
+
+  // bind salvar
+  const btnSave = el("#edit_save");
+  const btnClose = el("#edit_close");
+  if (btnSave && !btnSave._bound) {
+    btnSave._bound = true;
+    btnSave.addEventListener("click", async ()=>{
+      const payload = {
+        action: "rec.update",
+        id: el("#edit_id")?.value,
+        paciente_nome: el("#edit_paciente")?.value?.trim(),
+        paciente_cpf: (el("#edit_cpf")?.value || "").replace(/\D+/g, ""),
+        valor: parseNumber(el("#edit_valor")?.value),
+        forma_pagamento: el("#edit_forma")?.value,
+        tabela: el("#edit_tabela")?.value,
+        baixa: el("#edit_baixa")?.value,
+        indicador: el("#edit_indicador")?.value,
+        profissional_id: el("#edit_prof")?.value || "",
+        especialidade_id: el("#edit_esp")?.value || "",
+        observacao: el("#edit_obs")?.value?.trim() || "",
+        procedimento_id_list: Array.from(wrap?.querySelectorAll("input[type=checkbox]:checked")||[])
+          .map(c=>c.value).join(",")
+      };
+      const res = await API._post(payload);
+      if (!res.ok) return alert(res.erro || "Erro ao salvar");
+      el("#editModal").style.display = "none";
+      await renderRecebimentosDoDia();
+      await refreshKPIs();
+      await renderFechamento();
+    });
+  }
+  if (btnClose && !btnClose._bound) {
+    btnClose._bound = true;
+    btnClose.addEventListener("click", ()=>{ el("#editModal").style.display = "none"; });
+  }
+}
 
 /* ===========================
    Saídas (Transferências)
@@ -1031,11 +1070,12 @@ function setupSaidas() {
   });
 }
 
+// SUBSTITUA totalmente por esta versão
 async function renderSaidasDoDia() {
-  const tb = el("#tabelaSaidas tbody");
+  const tb = document.querySelector("#tabelaSaidas tbody");
   if (!tb) return;
 
-  const hoje = yyyyMMdd(new Date());
+  const hoje = yyyyMMdd(new Date()); // ✅ removido parêntese extra
   const cx = (await API.caixa.getByDia(state.usuarioAtivo, hoje)).data;
   const lista = cx ? (await API.saida.listByCaixa(cx.id)).data || [] : [];
 
@@ -1052,26 +1092,21 @@ async function renderSaidasDoDia() {
     : `<tr><td colspan="5">Nenhuma saída hoje.</td></tr>`;
 }
 
+
 /* ===========================
-   Relatórios + Filtros + CSV
+   Relatórios + Filtros + CSV (com paginação 50)
 =========================== */
 function hydrateFiltros() {
-  const all = window._cache.usuarios || [];
-  const usuariosAtivos = all.filter(u => String(u.ativo) === "1" || u.ativo === 1);
-
+  const usuarios = window._cache.usuarios || [];
   const selUser = el("#filtroUsuario");
   if (selUser) {
     selUser.innerHTML = `<option value="">Todos</option>${
-      usuariosAtivos.map(u => `<option value="${u.id}">${u.nome}</option>`).join("")
+      usuarios.map(u => `<option value="${u.id}">${u.nome}</option>`).join("")
     }`;
-
-    // mantém default no usuário ativo logado, se ele estiver ativo
-    if (state.usuarioAtivo && usuariosAtivos.some(u => String(u.id) === String(state.usuarioAtivo))) {
-      selUser.value = String(state.usuarioAtivo);
-    }
+    if (state.usuarioAtivo) selUser.value = String(state.usuarioAtivo);
   }
 
-  // Exames (mantém igual)
+  // popula exames para filtro "Exame específico"
   const selExame = el("#filtroExameNome");
   (async () => {
     await ensureProcedimentosCache();
@@ -1085,13 +1120,35 @@ function hydrateFiltros() {
   })();
 }
 
+// busca uma página do relatório
+async function fetchRelatorioPage(q, page=1) {
+  const resp = await API.relatorio.recebimentos({ ...q, page });
+  return resp;
+}
+
+// busca todas as páginas (para exportação)
+async function fetchRelatorioAllPages(q) {
+  let page = 1;
+  let acc = [];
+  // primeira página
+  let r = await fetchRelatorioPage(q, page);
+  if (!r.ok) return { ok:false, data:[], meta:r.meta||{} };
+  acc = acc.concat(r.data||[]);
+  const totalPages = r.meta?.total_pages || 1;
+  while (page < totalPages) {
+    page++;
+    const rr = await fetchRelatorioPage(q, page);
+    if (!rr.ok) break;
+    acc = acc.concat(rr.data||[]);
+  }
+  return { ok:true, data: acc, meta: r.meta };
+}
 
 async function aplicarFiltros(page = 1) {
   const tbWrap   = el("#tabelaRelatorio tbody");
   const tbTotais = el("#tabelaTotais tbody");
   if (!tbWrap || !tbTotais) return;
 
-  // ----- Coleta filtros da UI -----
   const q = {
     inicio:  (el("#filtroInicio")?.value || "1900-01-01"),
     fim:     (el("#filtroFim")?.value || "9999-12-31"),
@@ -1107,66 +1164,27 @@ async function aplicarFiltros(page = 1) {
   const examesMode = (el("#filtroExamesMode")?.value || ""); // "", "com", "sem"
   const exameNome  = (el("#filtroExameNome")?.value  || ""); // "" ou nome
 
-  // ----- Estado de paginação -----
-  if (typeof relState === "undefined") {
-    window.relState = { page: 1, total_pages: 1, lastQuery: null };
-  }
-  relState.page = page || 1;
-  relState.lastQuery = { ...q };
+  // guarda filtro pro estado (navegação/CSV)
+  state.rel.ultimoFiltro = { ...q, examesMode, exameNome };
 
-  // ----- Chamada API com paginação (50 fixo no back) -----
-  let resp;
-  try {
-    resp = await API.relatorio.recebimentos({ ...q, page: relState.page });
-  } catch (e) {
-    tbWrap.innerHTML = `<tr><td colspan="14">Erro ao carregar dados.</td></tr>`;
-    tbTotais.innerHTML = `<tr><td colspan="2">Erro ao carregar os totais.</td></tr>`;
-    return;
-  }
+  // página atual
+  const resp = await API.relatorio.recebimentos({ ...q, page });
+  let lista = resp.data || [];
+  state.rel.page = resp.meta?.page || 1;
+  state.rel.totalPages = resp.meta?.total_pages || 1;
 
-  // Suporte a formatos (compat):
-  // - novo: { ok, data: [...], meta: {...} }
-  // - antigo: { ok, data: [...] } (sem meta)
-  let listaRaw = [];
-  let meta = { page: relState.page, total_pages: 1, total: 0, per_page: 50 };
-
-  if (Array.isArray(resp.data)) {
-    listaRaw = resp.data || [];
-    if (resp.meta) meta = { ...meta, ...resp.meta };
-  } else if (resp?.data && Array.isArray(resp.data.items)) {
-    // caso alternativo (não usamos, mas deixei por compat)
-    listaRaw = resp.data.items;
-    meta = { ...meta, ...(resp.data.meta || {}) };
-  } else {
-    listaRaw = resp.data || [];
-  }
-
-  relState.total_pages = meta.total_pages || 1;
-
-  // ----- Normalização de exames e filtros client-side desta página -----
   await ensureProcedimentosCache();
   const maps = buildProcMaps();
 
-  // Garantia por usuário (se o servidor não filtrou)
-  if (q.usuario_id) {
-    const uid   = String(q.usuario_id);
-    const uNome = (window._cache.usuarios || []).find(u => String(u.id) === uid)?.nome;
-    listaRaw = listaRaw.filter(r => {
-      if (r.usuario_id != null)           return String(r.usuario_id) === uid;
-      if (r.caixa_usuario_id != null)     return String(r.caixa_usuario_id) === uid;
-      if (uNome && (r.usuario_nome || r.caixa_usuario_nome)) {
-        return (r.usuario_nome === uNome) || (r.caixa_usuario_nome === uNome);
-      }
-      return true;
-    });
-  }
+  // Normaliza exames de todos os registros (1x só)
+  let rows = lista.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
-  let rows = listaRaw.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
-
+  // 🔎 Filtros de exames (aplicados à página)
   if (examesMode === "com") rows = rows.filter(r => r._exames.length > 0);
   if (examesMode === "sem") rows = rows.filter(r => r._exames.length === 0);
   if (exameNome)           rows = rows.filter(r => r._exames.some(e => e.nome === exameNome));
 
+  // Enriquecimento (exames conforme TABELA) — página
   const enriched = rows.map((r) => {
     const t = (r.tabela || '').toLowerCase();
     const valorExames = (r._exames || []).reduce((acc, info) => acc + priceForTabela(info, t), 0);
@@ -1174,7 +1192,7 @@ async function aplicarFiltros(page = 1) {
     return { ...r, _valorExames: valorExames, _totalAtendimento: totalAtendimento };
   });
 
-  // ----- Render da tabela (somente a página atual) -----
+  // Tabela da página
   const linhas = enriched.map((r) => `
     <tr>
       <td>${fmtTS(r.created_at)}</td>
@@ -1195,115 +1213,138 @@ async function aplicarFiltros(page = 1) {
   `).join("");
   tbWrap.innerHTML = linhas || `<tr><td colspan="14">Sem resultados no filtro.</td></tr>`;
 
-  // ----- Atualiza barra de paginação -----
-  const info = el("#relInfo");
-  const btnPrev = el("#relPrev");
-  const btnNext = el("#relNext");
-  if (info) info.textContent = `Página ${meta.page} de ${meta.total_pages} — ${meta.total} registros`;
-  if (btnPrev) { btnPrev.disabled = (meta.page <= 1); btnPrev.onclick = () => aplicarFiltros(meta.page - 1); }
-  if (btnNext) { btnNext.disabled = (meta.page >= meta.total_pages); btnNext.onclick = () => aplicarFiltros(meta.page + 1); }
+  // TOTAIS DE TODO O PERÍODO (não só da página) — via endpoint de totais
+  const tot = await API.relatorio.totais(q);
+  const dataTot = tot?.data || {};
+  const totalGeral = Number(dataTot.totalGeral || 0);
 
-  // ----- TOTAlS (do filtro inteiro — todas as páginas) -----
-  try {
-    const tot = await API.relatorio.totais(q);
-    if (tot.ok) {
-      const D = tot.data || {};
-      const porForma = Array.isArray(D.porForma) ? D.porForma : [];
-      const porIndic = Array.isArray(D.porIndicador) ? D.porIndicador : [];
-      const porProf  = Array.isArray(D.porProfissional) ? D.porProfissional : [];
-      const examesAgg = D.exames || {};
+  const addLines = (arr, title) => {
+    if (!arr || !arr.length) return `<tr><th colspan="2">${title}</th></tr><tr><td>—</td><td>${fmt(0)}</td></tr>`;
+    const lines = arr.map(x=>`<tr><td>${x.k || "—"}</td><td>${fmt(x.v||0)}</td></tr>`).join("");
+    return `<tr><th colspan="2">${title}</th></tr>${lines}`;
+  };
 
-      const linhasForma = porForma.map(({k,v}) => `<tr><td>${k||"—"}</td><td>${fmt(v||0)}</td></tr>`).join("");
-      const linhasIndic = porIndic.map(({k,v}) => `<tr><td>${k||"—"}</td><td>${fmt(v||0)}</td></tr>`).join("");
-      const linhasProf  = porProf.map(({k,v})  => `<tr><td>${k||"—"}</td><td>${fmt(v||0)}</td></tr>`).join("");
+  // Exames detalhados
+  const examesAgg = dataTot.exames || {};
+  const examesHTML = Object.entries(examesAgg)
+    .sort((a,b)=> (b[1]?.total||0) - (a[1]?.total||0))
+    .map(([nome, obj])=>{
+      const sub = Object.entries(obj.formas||{})
+        .sort((a,b)=> b[1]-a[1])
+        .map(([forma, val])=> `<tr class="sub"><td><span class="indent">↳ ${forma||"—"}</span></td><td>${fmt(val||0)}</td></tr>`).join("");
+      return `<tr><td><strong>${nome}</strong></td><td><strong>${fmt(obj.total||0)}</strong></td></tr>${sub}`;
+    }).join("") || `<tr><td>—</td><td>${fmt(0)}</td></tr>`;
 
-      // Exames (exame + sublinhas por forma)
-      const linhasExamesDet = Object.entries(examesAgg)
-        .sort((a, b) => (b[1]?.total || 0) - (a[1]?.total || 0))
-        .map(([nome, data]) => {
-          const total = data?.total || 0;
-          const formas = data?.formas || {};
-          const sub = Object.entries(formas)
-            .sort((a,b)=> (b[1]||0) - (a[1]||0))
-            .map(([forma, val]) => `<tr class="sub"><td><span class="indent">↳ ${forma}</span></td><td>${fmt(val||0)}</td></tr>`)
-            .join("");
-          return `<tr><td><strong>${nome}</strong></td><td><strong>${fmt(total)}</strong></td></tr>${sub}`;
-        }).join("") || `<tr><td>—</td><td>${fmt(0)}</td></tr>`;
+  tbTotais.innerHTML = `
+    <tr><td><strong>Total Geral</strong></td><td>${fmt(totalGeral)}</td></tr>
+    ${addLines(dataTot.porForma, "Por Forma")}
+    ${addLines(dataTot.porIndicador, "Por Indicador")}
+    ${addLines(dataTot.porProfissional, "Por Profissional")}
+    <tr><th colspan="2">Por Exame (Exames Complementares)</th></tr>
+    ${examesHTML}
+  `;
 
-      tbTotais.innerHTML = `
-        <tr><td><strong>Total Geral (todos os resultados)</strong></td><td>${fmt(D.totalGeral||0)}</td></tr>
-
-        <tr><th colspan="2">Por Forma (todos)</th></tr>
-        ${linhasForma}
-
-        <tr><th colspan="2">Por Indicador (todos)</th></tr>
-        ${linhasIndic}
-
-        <tr><th colspan="2">Por Profissional (todos)</th></tr>
-        ${linhasProf}
-
-        <tr><th colspan="2">Por Exame (Exames Complementares — todos)</th></tr>
-        ${linhasExamesDet}
-      `;
-    } else {
-      tbTotais.innerHTML = `<tr><td colspan="2">Não foi possível carregar os totais.</td></tr>`;
-    }
-  } catch {
-    tbTotais.innerHTML = `<tr><td colspan="2">Erro ao carregar os totais.</td></tr>`;
-  }
+  // Render de paginação (se quiser mostrar na UI — opcional)
+  renderRelatorioPaginator();
 }
 
-function exportarCSV() {
+function renderRelatorioPaginator() {
+  // Caso queira exibir um pager simples:
+  const cont = el("#relatorioPager");
+  if (!cont) return;
+  const p = state.rel.page;
+  const tp = state.rel.totalPages;
+  cont.innerHTML = `
+    <div class="pager">
+      <button class="btn btn-outline" ${p<=1?"disabled":""} data-go="prev">« Anterior</button>
+      <span style="padding:0 8px">Página ${p} de ${tp}</span>
+      <button class="btn btn-outline" ${p>=tp?"disabled":""} data-go="next">Próxima »</button>
+    </div>
+  `;
+  cont.querySelectorAll("button[data-go]").forEach(b=>{
+    b.onclick = async () => {
+      const dir = b.dataset.go;
+      const np = dir==="prev" ? Math.max(1, p-1) : Math.min(tp, p+1);
+      await aplicarFiltros(np);
+    };
+  });
+}
+
+// Exporta CSV de TODAS as páginas, sem "R$" e com CPF preservado
+async function exportarCSV() {
   const table = document.getElementById("tabelaRelatorio");
   if (!table) return;
 
-  // 1) Cabeçalhos exatamente como aparecem
-  const headers = Array.from(table.querySelectorAll("thead th"))
-    .map(th => th.textContent.trim());
-
-  // Índices de colunas especiais
+  const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
   const idxCPF = headers.findIndex(h => h.toLowerCase() === "cpf");
-  const moneyTargets = ["valor", "valor exames", "total do atendimento"];
-  const moneyIdxs = headers
-    .map((h, i) => ({ h: h.toLowerCase(), i }))
-    .filter(x => moneyTargets.includes(x.h))
-    .map(x => x.i);
 
-  // 2) Linhas exatamente como aparecem
-  const rows = [headers];
-  const trs = Array.from(table.querySelectorAll("tbody tr"));
-  trs.forEach(tr => {
-    const cells = Array.from(tr.querySelectorAll("td")).map(td => td.textContent.trim());
+  // usa o último filtro salvo, mas **sem paginação** (busca todas as páginas)
+  const last = state.rel.ultimoFiltro || {};
+  const q = {
+    inicio: last.inicio || (el("#filtroInicio")?.value || "1900-01-01"),
+    fim: last.fim || (el("#filtroFim")?.value || "9999-12-31"),
+    usuario_id: last.usuario_id || (el("#filtroUsuario")?.value || ""),
+    forma: last.forma || (el("#filtroForma")?.value || ""),
+    tabela: last.tabela || (el("#filtroTabela")?.value || ""),
+    baixa: last.baixa || (el("#filtroBaixa")?.value || ""),
+    indicador: last.indicador || (el("#filtroIndicador")?.value || ""),
+    profissional_id: last.profissional_id || (el("#filtroProf")?.value || ""),
+    especialidade_id: last.especialidade_id || (el("#filtroEsp")?.value || ""),
+    texto: last.texto || (el("#filtroTexto")?.value || "")
+  };
 
-    if (cells.length !== headers.length) return;
+  // Baixa todas páginas cruas
+  const all = await fetchRelatorioAllPages(q);
+  if (!all.ok) { alert("Falha ao consultar dados para exportar."); return; }
 
-    // Força CPF como texto no Excel
-    if (idxCPF >= 0) {
-      const raw = (cells[idxCPF] || "").replace(/\s+/g, "");
-      if (raw) cells[idxCPF] = `="${raw}"`;
-    }
+  await ensureProcedimentosCache();
+  const maps = buildProcMaps();
 
-    // Remove "R$" e espaços das colunas monetárias (mantém milhar/decimal BR)
-    moneyIdxs.forEach(ix => {
-      if (ix >= 0 && cells[ix] != null) {
-        // ex.: "R$ 1.234,56" -> "1.234,56"
-        let s = String(cells[ix]).replace(/\s+/g, "");
-        s = s.replace(/^R\$\s?/, "");     // tira "R$"
-        s = s.replace(/[^\d.,-]/g, "");   // mantém apenas dígitos, . , e -
-        cells[ix] = s;
-      }
-    });
-
-    rows.push(cells);
+  // Normaliza e enriquece tudo (para trazer “Valor Exames” e “Total do Atendimento”)
+  const enriched = (all.data || []).map(r => {
+    const _exames = normalizeExamesRecord(r, maps);
+    const t = (r.tabela || '').toLowerCase();
+    const vEx = (_exames||[]).reduce((acc, info)=> acc + priceForTabela(info, t), 0);
+    return {
+      ...r,
+      _exames,
+      _valorExames: vEx,
+      _totalAtendimento: Number(r.valor || 0) + vEx
+    };
   });
 
-  // 3) Monta CSV preservando acentuação e formato BR (separador ;)
-  const sep = ";";
-  const csv = rows
-    .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(sep))
-    .join("\n");
+  // Constrói linhas na mesma ordem dos headers (sem “R$”)
+  const rows = [headers];
+  for (const r of enriched) {
+    const row = [
+      fmtTS(r.created_at),
+      r.paciente_nome,
+      (r.paciente_cpf || r.cpf || ""),
+      String(Number(r.valor || 0)).replace(".", ","), // sem R$
+      r.forma_pagamento || "",
+      r.tabela || "",
+      r.baixa || "",
+      r.indicador || "",
+      r.profissional_nome || "—",
+      r.especialidade_nome || "—",
+      (r._exames||[]).map(x=>x.nome).join(", ") || "—",
+      String(Number(r._valorExames || 0)).replace(".", ","),     // sem R$
+      String(Number(r._totalAtendimento || 0)).replace(".", ","),// sem R$
+      r.observacao || r.obs || ""
+    ];
 
-  // 4) Gera arquivo com BOM UTF-8 (Excel PT-BR)
+    // Força CPF como texto para o Excel
+    if (idxCPF >= 0) {
+      const rawCPF = (row[idxCPF] || "").replace(/\s+/g, "");
+      if (rawCPF) row[idxCPF] = `="${rawCPF}"`;
+    }
+
+    rows.push(row);
+  }
+
+  // CSV (;) + BOM UTF-8
+  const sep = ";";
+  const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(sep)).join("\n");
   const BOM = "\uFEFF";
   const blob = new Blob([BOM + csv], { type: "text/csv;charset=utf-8;" });
 
@@ -1311,13 +1352,15 @@ function exportarCSV() {
   const a    = document.createElement("a");
   const hoje = new Date().toISOString().slice(0,10);
   a.href = url;
-  a.download = `relatorio_caixa_${hoje}.csv`;
+  a.download = `relatorio_caixa_${q.inicio}_a_${q.fim}_${hoje}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
+// expõe para segurança
+window.exportarCSV = exportarCSV;
 
 /* ===========================
    Dashboard (Mês, com exames)
@@ -1330,33 +1373,35 @@ async function refreshKPIs() {
   const kDin  = el("#kpiDinheiroHoje");
   const kSai  = el("#kpiSaidasHoje");
 
-  const hoje = new Date();
-  const hojeStr = yyyyMMdd(hoje);
-  const inicioMes = yyyyMMdd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
-  const fimHoje   = hojeStr;
+  await ensureProcedimentosCache();
+  const maps = buildProcMaps();
 
-  // -------- Totais do DIA (servidor já soma valor + exames)
-  const totDiaResp = await API.get({ action: "relatorio.totais", inicio: hojeStr, fim: hojeStr });
-  const totDia = totDiaResp?.data || {};
-  const totalDiaComExames = Number(totDia.totalGeral || 0);
+  // HOJE (TODOS os caixas — usando relatório por data)
+  const hojeStr = yyyyMMdd(new Date());
+  const recDia = await API.relatorio.recebimentos({ inicio: hojeStr, fim: hojeStr });
+  const listaDia = (recDia.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
-  // Dinheiro hoje (com exames) a partir do agrupamento por forma
-  const porFormaDia = Array.isArray(totDia.porForma) ? totDia.porForma : [];
-  const dinheiroHoje = porFormaDia.find(x => (x.k || x.forma) === "Dinheiro")?.v || 0;
+  const totalDiaComExames = listaDia.reduce((acc, r) => acc + totalAtendimentoComExames(r), 0);
+  const dinheiroHoje = listaDia
+    .filter(r => (r.forma_pagamento || '').toLowerCase() === 'dinheiro')
+    .reduce((acc, r) => acc + totalAtendimentoComExames(r), 0);
 
-  // -------- Totais do MÊS (servidor já soma valor + exames; não sofre paginação)
-  const totMesResp = await API.get({ action: "relatorio.totais", inicio: inicioMes, fim: fimHoje });
-  const totMes = totMesResp?.data || {};
-  const totalMesComExames = Number(totMes.totalGeral || 0);
-
-  // -------- Saídas de HOJE (somatório de todas as saídas dos caixas do dia)
+  // Saídas de todos os caixas do dia
   const cxListResp = await API.caixa.list(hojeStr, hojeStr);
-  const cxList = cxListResp?.data || [];
+  const cxList = cxListResp.data || [];
   let saidasHoje = 0;
   for (const cx of cxList) {
     const s = await API.saida.listByCaixa(cx.id);
     saidasHoje += (s.data || []).reduce((a, x) => a + Number(x.valor || 0), 0);
   }
+
+  // MÊS CORRENTE (TODOS os caixas — usando relatório por período)
+  const agora = new Date();
+  const inicioMes = yyyyMMdd(new Date(agora.getFullYear(), agora.getMonth(), 1));
+  const fimMesHoje = yyyyMMdd(agora);
+  const recMes = await API.relatorio.recebimentos({ inicio: inicioMes, fim: fimMesHoje });
+  const listaMes = (recMes.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
+  const totalMesComExames = listaMes.reduce((acc, r) => acc + totalAtendimentoComExames(r), 0);
 
   if (kHoje) kHoje.textContent = fmt(totalDiaComExames);
   if (kMes)  kMes.textContent  = fmt(totalMesComExames);
@@ -1368,16 +1413,13 @@ async function renderChartsDashboard() {
   await ensureProcedimentosCache();
   const maps = buildProcMaps();
 
-  // Mês corrente (datas locais)
-  const hoje      = new Date();
+  const hoje = new Date();
   const inicioMes = yyyyMMdd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
   const fimHoje   = yyyyMMdd(hoje);
 
-  // Recebimentos do mês (sem usuario_id => TODOS os caixas)
   const respMes = await API.relatorio.recebimentos({ inicio: inicioMes, fim: fimHoje });
   const recs = (respMes.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
-  // Helper: agrega por chave usando TOTAL (valor + exames)
   const sumByTotal = (arr, key) =>
     Object.entries(arr.reduce((acc, r) => {
       const k = r[key] || "—";
@@ -1455,20 +1497,18 @@ async function renderChartsDashboard() {
     });
   }
 
-  // Receita diária do mês (com exames) — datas locais e variável sem colisão
+  // Receita diária do mês (com exames)
   const diasArr = [];
-  const start = new Date(hoje.getFullYear(), hoje.getMonth(), 1);              // 1º dia do mês (local)
-  const end   = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()); // hoje (local)
+  const start = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const end   = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
     diasArr.push(yyyyMMdd(d));
   }
-
   const somaPorDia = diasArr.map(day =>
     recs
       .filter(r => (r.created_at || "").slice(0,10) === day)
       .reduce((a,b) => a + totalAtendimentoComExames(b), 0)
   );
-
   if (chartDiario) chartDiario.destroy();
   const elDiario = el("#chartDiario");
   if (elDiario) {
@@ -1482,8 +1522,7 @@ async function renderChartsDashboard() {
       }
     });
   }
-} // <<<<< fecha a função INTEIRA
-
+}
 
 /* ===========================
    Fechamento (Dia Atual, com exames)
@@ -1499,8 +1538,8 @@ async function renderFechamento() {
     return;
   }
 
-  // 1) Dados base do caixa (data, saldo inicial, dinheiro etc.)
-  const resp = await API.fecharDia(state.usuarioAtivo);
+  // Dados base do caixa
+  const resp = await API.fechamento.doDia(state.usuarioAtivo);
   const data = resp.data;
   if (!data) {
     if (cont) cont.innerHTML = `<div class="line"><span>—</span><span class="pill">Abra o caixa para ver o fechamento.</span></div>`;
@@ -1513,9 +1552,8 @@ async function renderFechamento() {
   const maps = buildProcMaps();
 
   const cx  = data.caixa;
-  const din = data.dinheiro || { saldo_inicial:0, recebido:0, saidas:0, saldo_final:0 };
 
-  // 2) Recebimentos do dia do usuário ativo → Total (com exames) e Por Forma (com exames)
+  // Recebimentos do dia do usuário ativo — **RECALCULANDO** totais considerando exames
   const hoje = cx.data_caixa;
   const rel = await API.relatorio.recebimentos({
     inicio: hoje,
@@ -1525,13 +1563,28 @@ async function renderFechamento() {
   const lista = (rel.data || []).map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
   let totalGeral = 0;
-  const porFormaTotais = {}; // forma -> soma com exames
+  const porFormaTotais = {};
+  let recebidoDinheiro = 0;
+
   for (const r of lista) {
     const totalAtendimento = totalAtendimentoComExames(r);
     totalGeral += totalAtendimento;
     const forma = r.forma_pagamento || "—";
     porFormaTotais[forma] = (porFormaTotais[forma] || 0) + totalAtendimento;
+    if ((forma || '').toLowerCase() === 'dinheiro') {
+      recebidoDinheiro += totalAtendimento; // inclui exames
+    }
   }
+
+  // Saídas em dinheiro (para compor posição de dinheiro)
+  let saidasDin = 0;
+  if (Number(cx.id)) {
+    const s = await API.saida.listByCaixa(cx.id);
+    saidasDin = (s.data || [])
+      .filter(x => (x.origem || '').toLowerCase() === 'dinheiro')
+      .reduce((a, x) => a + Number(x.valor || 0), 0);
+  }
+  const saldoFinalDinheiro = Number(cx.saldo_inicial || 0) + recebidoDinheiro - saidasDin;
 
   if (cont) {
     const linhasPorForma = Object.entries(porFormaTotais)
@@ -1551,11 +1604,11 @@ async function renderFechamento() {
 
   if (pos) {
     pos.innerHTML = `
-      <div class="line"><span>Saldo Inicial</span><span class="pill">${fmt(din.saldo_inicial)}</span></div>
-      <div class="line"><span>Recebido em Dinheiro</span><span class="pill">${fmt(din.recebido)}</span></div>
-      <div class="line"><span>Saídas em Dinheiro</span><span class="pill">-${fmt(din.saidas)}</span></div>
+      <div class="line"><span>Saldo Inicial</span><span class="pill">${fmt(cx.saldo_inicial)}</span></div>
+      <div class="line"><span>Recebido em Dinheiro (inclui exames)</span><span class="pill">${fmt(recebidoDinheiro)}</span></div>
+      <div class="line"><span>Saídas em Dinheiro</span><span class="pill">-${fmt(saidasDin)}</span></div>
       <hr/>
-      <div class="line"><strong>Saldo Final em Dinheiro</strong><strong class="pill">${fmt(din.saldo_final)}</strong></div>
+      <div class="line"><strong>Saldo Final em Dinheiro</strong><strong class="pill">${fmt(saldoFinalDinheiro)}</strong></div>
     `;
   }
 
@@ -1572,113 +1625,101 @@ async function renderFechamento() {
   }
 }
 
-
 function setupFechamentoControls() {
   const btn = el("#btnFecharCaixaDia");
   if (!btn) return;
   btn.addEventListener("click", async () => {
-    await encerrarCaixaAtual();   // encerra o caixa do dia do usuário ativo
-    await updateCaixaStatusUI();  // atualiza badge/status
-    await renderFechamento();     // re-render do resumo/gráfico
-    await renderListaCaixas();    // atualiza listagem (para mostrar encerrado_em)
-    await refreshKPIs();          // atualiza KPIs do dashboard
+    await encerrarCaixaAtual();
+    await updateCaixaStatusUI();
+    await renderFechamento();
+    await renderListaCaixas();
+    await refreshKPIs();
   });
 }
 
-
 /* ===========================
-   Init (robusto: navegação primeiro e try/catch em tudo)
+   Init
 =========================== */
 async function init() {
-  // 1) Liga a navegação IMEDIATAMENTE (antes de qualquer await)
-  try { setupNav(); } catch (e) { console.error("[setupNav] erro:", e); }
+  await bootstrap();
 
-  // 2) Tenta bootstrap, mas não deixa o app travar se falhar
-  try { await bootstrap(); } catch (e) { console.error("[bootstrap] erro:", e); }
+  // header usuário
+  await hydrateUserHeader();
 
-  // 3) Header do usuário (não crítico)
-  try { await hydrateUserHeader(); } catch (e) { console.error("[hydrateUserHeader] erro:", e); }
+  setupNav();
+  await hydrateUsuarios();
+  const addU = el("#btnAddUsuario");
+  if (addU) addU.addEventListener("click", addUsuario);
 
-  // 4) Usuários e status do caixa (se falhar, seguimos)
-  try {
-    await hydrateUsuarios();
-  } catch (e) {
-    console.error("[hydrateUsuarios] erro:", e);
-    // mesmo que falhe, tenta ao menos atualizar o badge/estado
-    try { await updateCaixaStatusUI(); } catch(_) {}
+  // botão sair
+  const btnLogout = el("#btnLogout");
+  if (btnLogout) {
+    btnLogout.addEventListener("click", async () => {
+      try {
+        const fd = new FormData();
+        fd.append("action", "auth.logout");
+        await fetch("auth.php", { method: "POST", body: fd, credentials: "same-origin" });
+      } catch {}
+      window.location.href = "login.html";
+    });
   }
 
-  // 5) Botão adicionar usuário
-  try {
-    const addU = el("#btnAddUsuario");
-    if (addU) addU.addEventListener("click", addUsuario);
-  } catch (e) { console.error("[btnAddUsuario] erro:", e); }
+  setupAbertura();
+  setupFiltroCaixas();
+  await renderListaCaixas();
+  setupRecebimentos();
+  setupSaidas();
+  setupProcedimentos();
+  await setupProfEsp();
+  await hydrateProfEspSelects();
+  renderChipsExames();
+  await updateCaixaStatusUI();
+  setupFechamentoControls();
 
-  // 6) Logout
-  try {
-    const btnLogout = el("#btnLogout");
-    if (btnLogout) {
-      btnLogout.addEventListener("click", async () => {
-        try {
-          const fd = new FormData();
-          fd.append("action", "auth.logout");
-          await fetch("auth.php", { method: "POST", body: fd, credentials: "same-origin" });
-        } catch {}
-        window.location.href = "login.html";
-      });
-    }
-  } catch (e) { console.error("[logout] erro:", e); }
+  // Data padrão p/ relatórios (início do mês até hoje)
+  const hoje = new Date();
+  const inicioMes = yyyyMMdd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+  const fIni = el("#filtroInicio");
+  const fFim = el("#filtroFim");
+  if (fIni) fIni.value = inicioMes;
+  if (fFim) fFim.value = yyyyMMdd(hoje);
+  hydrateFiltros();
+  await aplicarFiltros();
 
-  // 7) Telas principais (cada uma protegida)
-  try { setupAbertura(); } catch (e) { console.error("[setupAbertura] erro:", e); }
-  try { setupFiltroCaixas(); } catch (e) { console.error("[setupFiltroCaixas] erro:", e); }
-  try { await renderListaCaixas(); } catch (e) { console.error("[renderListaCaixas] erro:", e); }
+  // Reaplicar ao trocar filtros
+  const filtroUserSel = el("#filtroUsuario");
+  if (filtroUserSel) filtroUserSel.addEventListener("change", ()=>aplicarFiltros(1));
+  ["#filtroExamesMode", "#filtroExameNome", "#filtroForma", "#filtroTabela", "#filtroBaixa", "#filtroIndicador", "#filtroProf", "#filtroEsp"]
+    .forEach(id => {
+      const s = el(id);
+      if (s) s.addEventListener("change", ()=>aplicarFiltros(1));
+    });
 
-  try { setupRecebimentos(); } catch (e) { console.error("[setupRecebimentos] erro:", e); }
-  try { setupSaidas(); } catch (e) { console.error("[setupSaidas] erro:", e); }
-  try { setupProcedimentos(); } catch (e) { console.error("[setupProcedimentos] erro:", e); }
-  try { await setupProfEsp(); } catch (e) { console.error("[setupProfEsp] erro:", e); }
-  try { await hydrateProfEspSelects(); } catch (e) { console.error("[hydrateProfEspSelects] erro:", e); }
-  try { renderChipsExames(); } catch (e) { console.error("[renderChipsExames] erro:", e); }
-  try { await updateCaixaStatusUI(); } catch (e) { console.error("[updateCaixaStatusUI] erro:", e); }
-  try { setupFechamentoControls(); } catch (e) { console.error("[setupFechamentoControls] erro:", e); }
+  // Botões Relatório
+  const btnFiltros = el("#btnAplicarFiltros");
+  const btnCSV     = el("#btnExportarCSV");
+  if (btnFiltros) btnFiltros.addEventListener("click", ()=>aplicarFiltros(1));
+  if (btnCSV)     btnCSV.addEventListener("click", (e)=>{ e.preventDefault(); exportarCSV(); });
 
-  // 8) Datas padrão dos relatórios
-  try {
-    const hoje = new Date();
-    const inicioMes = yyyyMMdd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
-    const fIni = el("#filtroInicio");
-    const fFim = el("#filtroFim");
-    if (fIni) fIni.value = inicioMes;
-    if (fFim) fFim.value = yyyyMMdd(hoje);
-    hydrateFiltros();
-  } catch (e) { console.error("[datas relatório] erro:", e); }
-
-  // 9) Primeira carga do relatório (página 1)
-  try { await aplicarFiltros(1); } catch (e) { console.error("[aplicarFiltros first] erro:", e); }
-
-  // 10) Dashboard + Fechamento
-  try { await refreshKPIs(); } catch (e) { console.error("[refreshKPIs] erro:", e); }
-  try { await renderChartsDashboard(); } catch (e) { console.error("[renderChartsDashboard] erro:", e); }
-  try { await renderFechamento(); } catch (e) { console.error("[renderFechamento] erro:", e); }
-
-  // 11) Botões e eventos de Relatório
-  try {
-    const btnFiltros = el("#btnAplicarFiltros");
-    const btnCSV     = el("#btnExportarCSV");
-    if (btnFiltros) btnFiltros.addEventListener("click", () => aplicarFiltros(1));
-    if (btnCSV)     btnCSV.addEventListener("click", exportarCSV);
-
-    // Reaplicar ao trocar filtros (recomeça na página 1)
-    const filtroUserSel = el("#filtroUsuario");
-    if (filtroUserSel) filtroUserSel.addEventListener("change", () => aplicarFiltros(1));
-    ["#filtroExamesMode", "#filtroExameNome", "#filtroForma", "#filtroTabela", "#filtroBaixa", "#filtroIndicador", "#filtroProf", "#filtroEsp"]
-      .forEach(id => {
-        const s = el(id);
-        if (s) s.addEventListener("change", () => aplicarFiltros(1));
-      });
-  } catch (e) { console.error("[eventos relatório] erro:", e); }
+  // Dashboard + Fechamento
+  await refreshKPIs();
+  await renderChartsDashboard();
+  await renderFechamento();
 }
 
+// Rebind defensivo do botão export mesmo se algo alterar binds
+function bindExportButton() {
+  const btn = document.getElementById("btnExportarCSV");
+  if (!btn) return;
+  btn.onclick = async (e) => {
+    e.preventDefault();
+    try {
+      await exportarCSV();
+    } catch (err) {
+      console.error("Export CSV error:", err);
+      alert("Falha ao exportar CSV. Veja o console para detalhes.");
+    }
+  };
+}
+document.addEventListener("DOMContentLoaded", bindExportButton);
 document.addEventListener("DOMContentLoaded", init);
-
