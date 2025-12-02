@@ -26,6 +26,9 @@ let state = {
   }
 };
 
+let editingRecId = null; // id do recebimento em edição (null = modo inclusão)
+
+
 // cache leve
 window._cache = {
   usuarios: [],
@@ -526,6 +529,75 @@ function renderChipsExames() {
   updateExamesTotalInfo();
 }
 
+function setSelectValue(sel, val){
+  const elSel = typeof sel === 'string' ? document.querySelector(sel) : sel;
+  if (!elSel) return;
+  const opt = Array.from(elSel.options).find(o => String(o.value) === String(val) || o.text === val);
+  elSel.value = opt ? opt.value : (val ?? "");
+}
+
+function activateExamsByNames(nomes){
+  els("#chipsExames .chip").forEach(ch => ch.classList.remove("active"));
+  const set = new Set((nomes||[]).map(n=>String(n).trim()));
+  els("#chipsExames .chip").forEach(ch => {
+    if (set.has(ch.dataset.exame)) ch.classList.add("active");
+  });
+  updateExamesTotalInfo();
+}
+
+function enterEditMode(rec){
+  editingRecId = rec.id;
+
+  // Preenche campos
+  el("#pacienteNome").value = rec.paciente_nome || "";
+  el("#pacienteCPF").value  = (rec.paciente_cpf || rec.cpf || "");
+  el("#valor").value        = Number(rec.valor || 0);
+
+  setSelectValue("#formaPagamento", rec.forma_pagamento || "");
+  setSelectValue("#tabela",         rec.tabela || "");
+  setSelectValue("#baixa",          rec.baixa || "");
+  setSelectValue("#indicador",      rec.indicador || "");
+  setSelectValue("#profissional",   rec.profissional_id ?? "");
+  setSelectValue("#especialidade",  rec.especialidade_id ?? "");
+
+  el("#observacao").value = rec.observacao || rec.obs || "";
+
+  // Ativa chips dos exames pelo nome
+  const nomesExames = (rec._exames || rec.exames || []).map(x => x.nome).filter(Boolean);
+  activateExamsByNames(nomesExames);
+
+  // UI: muda texto do botão e injeta "Cancelar"
+  const btnSubmit = el('#formRecebimento button[type="submit"]');
+  if (btnSubmit) btnSubmit.textContent = "Salvar edição";
+
+  if (!el("#btnCancelarEdicao")) {
+    const cancel = document.createElement("button");
+    cancel.id = "btnCancelarEdicao";
+    cancel.type = "button";
+    cancel.className = "btn btn-outline";
+    cancel.style.marginLeft = "8px";
+    cancel.textContent = "Cancelar";
+    btnSubmit?.parentElement?.appendChild(cancel);
+    cancel.addEventListener("click", exitEditMode);
+  }
+
+  // Foca no topo do formulário
+  document.getElementById("recebimentos")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function exitEditMode(){
+  editingRecId = null;
+  el("#formRecebimento").reset();
+  els("#chipsExames .chip.active").forEach(ch=>ch.classList.remove("active"));
+  updateExamesTotalInfo();
+
+  const btnSubmit = el('#formRecebimento button[type="submit"]');
+  if (btnSubmit) btnSubmit.textContent = "Lançar";
+  const cancel = el("#btnCancelarEdicao");
+  if (cancel) cancel.remove();
+}
+
+
 function updateExamesTotalInfo() {
   const infoEl = el("#examesTotalInfo");
   if (!infoEl) return;
@@ -789,66 +861,111 @@ function setupRecebimentos() {
   const form = el("#formRecebimento");
   if (!form) return;
 
+  // helper para montar CSV de ids dos exames selecionados
+  function buildProcedimentosCSV() {
+    const nomesSel = Array.from(document.querySelectorAll("#chipsExames .chip.active"))
+      .map((x) => x.dataset.exame);
+    const all = window._cache.procedimentos || [];
+    return all.filter(p => nomesSel.includes(p.nome)).map(p => p.id).join(",");
+  }
+
+  async function sairModoEdicao() {
+    delete form.dataset.editingId;
+    const btnSubmit = form.querySelector('button[type="submit"]');
+    if (btnSubmit) btnSubmit.textContent = "Lançar";
+    form.reset();
+    els("#chipsExames .chip.active").forEach(ch => ch.classList.remove("active"));
+    updateExamesTotalInfo();
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    if (!state.caixaAtivo) {
-      alert("Abra o caixa para lançar recebimentos.");
-      return;
-    }
+    const editingId = form.dataset.editingId; // string ou undefined
 
-    const pacienteNome    = el("#pacienteNome").value.trim();
-    const pacienteCPF     = el("#pacienteCPF").value.replace(/\D+/g, "");
-    const valor           = parseNumber(el("#valor").value);
-    const formaPagamento  = el("#formaPagamento").value;
-    const tabela          = el("#tabela").value;
-    const baixa           = el("#baixa").value;
-    const indicador       = el("#indicador").value;
-    const profissionalId  = el("#profissional").value || "";
-    const especialidadeId = el("#especialidade").value || "";
-    const observacao      = el("#observacao").value.trim();
+    // campos
+    const paciente_nome    = el("#pacienteNome").value.trim();
+    const paciente_cpf     = el("#pacienteCPF").value.replace(/\D+/g, "");
+    const valor            = parseNumber(el("#valor").value);
+    const forma_pagamento  = el("#formaPagamento").value;
+    const tabela           = el("#tabela").value;
+    const baixa            = el("#baixa").value;
+    const indicador        = el("#indicador").value;
+    const profissional_id  = el("#profissional")?.value || "";
+    const especialidade_id = el("#especialidade")?.value || "";
+    const observacao       = el("#observacao").value.trim();
+    const procedimento_id_list = buildProcedimentosCSV();
 
-    const examesSel = Array.from(document.querySelectorAll("#chipsExames .chip.active"))
-      .map((x) => x.dataset.exame);
-
-    if (!pacienteNome || !valor || !formaPagamento || !tabela || !baixa || !indicador) {
+    // validações básicas
+    if (!paciente_nome || !valor || !forma_pagamento || !tabela || !baixa || !indicador) {
       alert("Preencha os campos obrigatórios.");
       return;
     }
 
-    // nomes -> ids
-    await ensureProcedimentosCache();
-    const ids = window._cache.procedimentos
-      .filter(p => examesSel.includes(p.nome))
-      .map(p=>p.id).join(',');
+    // quando NÃO está editando, precisa ter um caixa ativo
+    if (!editingId && !state.caixaAtivo) {
+      alert("Abra o caixa para lançar recebimentos.");
+      return;
+    }
 
-    const resp = await API.rec.add({
-      caixa_id: state.caixaAtivo,
-      paciente_nome: pacienteNome,
-      paciente_cpf: pacienteCPF,
-      valor,
-      forma_pagamento: formaPagamento,
-      tabela,
-      baixa,
-      indicador,
-      profissional_id: profissionalId,
-      especialidade_id: especialidadeId,
-      observacao,
-      procedimento_id_list: ids
-    });
+    let resp;
+    if (editingId) {
+      // UPDATE
+      resp = await API.rec.update({
+        id: Number(editingId),
+        paciente_nome,
+        paciente_cpf,
+        valor,
+        forma_pagamento,
+        tabela,
+        baixa,
+        indicador,
+        profissional_id,
+        especialidade_id,
+        observacao,
+        procedimento_id_list
+      });
+    } else {
+      // ADD
+      resp = await API.rec.add({
+        caixa_id: state.caixaAtivo,
+        paciente_nome,
+        paciente_cpf,
+        valor,
+        forma_pagamento,
+        tabela,
+        baixa,
+        indicador,
+        profissional_id,
+        especialidade_id,
+        observacao,
+        procedimento_id_list
+      });
+    }
 
-    if (!resp.ok) { alert(resp.erro || "Erro ao lançar recebimento"); return; }
+    if (!resp.ok) {
+      alert(resp.erro || "Erro ao salvar recebimento");
+      return;
+    }
 
-    el("#formRecebimento").reset();
-    els("#chipsExames .chip.active").forEach((ch) => ch.classList.remove("active"));
-    updateExamesTotalInfo();
+    // sucesso
     await renderRecebimentosDoDia();
     await refreshKPIs();
     await renderFechamento();
+
+    if (editingId) {
+      await sairModoEdicao();
+    } else {
+      form.reset();
+      els("#chipsExames .chip.active").forEach(ch => ch.classList.remove("active"));
+      updateExamesTotalInfo();
+    }
   });
 
+  // inicializa os chips
   renderChipsExames();
 }
+
 
 async function renderRecebimentosDoDia() {
   const tb = el("#tabelaRecebimentos tbody");
@@ -862,6 +979,7 @@ async function renderRecebimentosDoDia() {
   const cx = cxResp.data;
   const listaRaw = cx ? ((await API.rec.listByCaixa(cx.id)).data || []) : [];
 
+  // Normaliza exames (traz id/nome/valores) para cada registro
   const lista = listaRaw.map(r => ({ ...r, _exames: normalizeExamesRecord(r, maps) }));
 
   const linhas = lista.map((r) => {
@@ -871,7 +989,7 @@ async function renderRecebimentosDoDia() {
     const totalAtendimento = Number(r.valor || 0) + totalExames;
 
     return `
-      <tr data-id="${r.id}">
+      <tr>
         <td>${fmtTS(r.created_at)}</td>
         <td>${r.paciente_nome}</td>
         <td>${fmt(r.valor)}</td>
@@ -895,7 +1013,7 @@ async function renderRecebimentosDoDia() {
 
   tb.innerHTML = linhas || `<tr><td colspan="14">Nenhum lançamento hoje.</td></tr>`;
 
-  // Totais abaixo (base + exames)
+  // Totais (base + exames) no rodapé do card
   const totaisEl = el("#totaisRecebimentos");
   if (totaisEl) {
     const totalRecebido = lista.reduce((a, r) => a + Number(r.valor || 0), 0);
@@ -910,23 +1028,77 @@ async function renderRecebimentosDoDia() {
     `;
   }
 
-  // Bind Editar/Excluir
-  tb.querySelectorAll("[data-del]").forEach(btn => {
+  // ——— ações (Editar / Excluir) ———
+  // EDITAR → preenche o formulário superior e entra em modo edição
+  tb.querySelectorAll("[data-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.edit);
+      const rec = lista.find(x => x.id == id);
+      if (!rec) return;
+
+      // campos básicos
+      el("#pacienteNome").value = rec.paciente_nome || "";
+      el("#pacienteCPF").value  = (rec.paciente_cpf || rec.cpf || "");
+      el("#valor").value        = Number(rec.valor || 0);
+
+      // selects
+      el("#formaPagamento").value = rec.forma_pagamento || "";
+      el("#tabela").value         = rec.tabela || "";
+      el("#baixa").value          = rec.baixa || "";
+      el("#indicador").value      = rec.indicador || "";
+
+      if (el("#profissional"))   el("#profissional").value   = rec.profissional_id || "";
+      if (el("#especialidade"))  el("#especialidade").value  = rec.especialidade_id || "";
+
+      // observação
+      el("#observacao").value = rec.observacao || rec.obs || "";
+
+      // chips de exames (ligam de acordo com os nomes)
+      els("#chipsExames .chip").forEach(ch => ch.classList.remove("active"));
+      const nomesExames = (rec._exames || rec.exames || []).map(x => x.nome);
+      els("#chipsExames .chip").forEach(ch => {
+        if (nomesExames.includes(ch.dataset.exame)) ch.classList.add("active");
+      });
+      updateExamesTotalInfo();
+
+      // marca modo edição para o submit decidir entre add/update
+      const form = el("#formRecebimento");
+      form.dataset.editingId = String(rec.id);
+
+      // feedback no botão
+      const btnSubmit = form.querySelector('button[type="submit"]');
+      if (btnSubmit) btnSubmit.textContent = "Salvar Edição";
+
+      // foca no formulário
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  // EXCLUIR
+  tb.querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = Number(btn.dataset.del);
+      if (!id) return;
       if (!confirm("Excluir este recebimento?")) return;
-      const r = await API.rec.del(id);
-      if (!r.ok) { alert(r.erro || "Erro ao excluir"); return; }
+
+      const rr = await API.rec.del(id);
+      if (!rr.ok) { alert(rr.erro || "Erro ao excluir"); return; }
+
+      // se estava editando este registro, sai do modo edição (só reseta rótulo do botão e o flag)
+      const form = el("#formRecebimento");
+      if (form && form.dataset.editingId == String(id)) {
+        delete form.dataset.editingId;
+        const btnSubmit = form.querySelector('button[type="submit"]');
+        if (btnSubmit) btnSubmit.textContent = "Lançar";
+      }
+
       await renderRecebimentosDoDia();
       await refreshKPIs();
       await renderFechamento();
     });
   });
-
-  tb.querySelectorAll("[data-edit]").forEach(btn => {
-    btn.addEventListener("click", () => openEditRecebimento(Number(btn.dataset.edit), lista));
-  });
 }
+
 
 // Editor de recebimento (fallback via prompt se não existir modal no HTML)
 async function openEditRecebimento(id, listaDia) {
